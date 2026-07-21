@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Magazyn Elektroniki</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─── TOKENS ─────────────────────────────────────────────── */
+:root{
+  --bg:        #0D1117;
+  --surface:   #161B22;
+  --card:      #1C2128;
+  --border:    #30363D;
+  --border2:   #21262D;
+  --accent:    #2D9CDB;
+  --accent-lo: rgba(45,156,219,.12);
+  --green:     #27AE60;
+  --green-lo:  rgba(39,174,96,.14);
+  --amber:     #F2994A;
+  --amber-lo:  rgba(242,153,74,.14);
+  --red:       #EB5757;
+  --red-lo:    rgba(235,87,87,.14);
+  --text:      #E6EDF3;
+  --muted:     #7D8590;
+  --dim:       #3D444D;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', system-ui, sans-serif;
+  --r:    6px;
+  --r2:   10px;
+}
+
+/* ─── RESET ───────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:14px}
+input,select,textarea,button{font-family:inherit}
+button{cursor:pointer}
+a{color:inherit}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ─── HEADER ─────────────────────────────────────────────── */
+.header{
+  display:flex;align-items:center;gap:12px;
+  padding:0 20px;height:54px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;position:relative;z-index:10;
+}
+.logo{
+  font-family:var(--mono);font-size:13px;font-weight:700;
+  color:var(--accent);letter-spacing:.06em;white-space:nowrap;
+  display:flex;align-items:center;gap:8px;
+}
+.logo-chip{
+  width:26px;height:26px;border-radius:5px;background:var(--accent);
+  display:grid;place-items:center;color:#000;font-size:13px;font-weight:900;
+}
+.logo-sub{color:var(--muted);font-weight:400}
+
+/* ─── STAT STRIP ─────────────────────────────────────────── */
+.statstrip{
+  display:flex;gap:0;flex-shrink:0;
+  background:var(--surface);border-bottom:1px solid var(--border);
+}
+.stat{
+  padding:8px 20px;border-right:1px solid var(--border);
+  display:flex;flex-direction:column;gap:1px;
+}
+.stat-v{font-family:var(--mono);font-size:18px;font-weight:700;line-height:1}
+.stat-l{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-top:1px}
+.stat-v.ok   {color:var(--green)}
+.stat-v.warn {color:var(--amber)}
+.stat-v.bad  {color:var(--red)}
+.stat-v.blue {color:var(--accent)}
+.stat-v.purple{color:#A78BFA}
+
+/* equation display */
+.stat-eq{
+  display:flex;align-items:center;gap:0;
+  padding:0 16px;
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  border-right:1px solid var(--border);
+}
+.eq-part{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 10px}
+.eq-num{font-size:17px;font-weight:700;line-height:1}
+.eq-num.total{color:var(--accent)}
+.eq-num.inuse{color:#A78BFA}
+.eq-num.avail{color:var(--green)}
+.eq-op{font-size:14px;color:var(--dim);padding:0 2px;align-self:center;margin-top:6px}
+
+/* clickable stat tiles → status filters */
+.clk{cursor:pointer;position:relative;transition:background .12s}
+.clk:hover{background:var(--card)}
+.eq-part.clk{border-radius:5px}
+.clk.stat-active{background:var(--accent-lo)}
+.clk.stat-active::after{
+  content:'';position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--accent);
+}
+
+/* ─── BODY LAYOUT ────────────────────────────────────────── */
+.body{display:flex;flex:1;overflow:hidden}
+
+/* ─── SIDEBAR ────────────────────────────────────────────── */
+.sidebar{
+  width:210px;min-width:210px;
+  background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.sidebar-head{
+  padding:12px 14px 8px;
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.1em;color:var(--muted);
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border2);flex-shrink:0;
+}
+.cat-list{flex:1;overflow-y:auto;padding:4px 0}
+.cat-row{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 14px;cursor:pointer;border-left:3px solid transparent;
+  transition:background .1s,border-color .1s;
+}
+.cat-row:hover{background:var(--card)}
+.cat-row.active{background:var(--accent-lo);border-left-color:var(--accent);color:var(--accent)}
+.cat-row .cat-name{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-row .cat-count{
+  font-family:var(--mono);font-size:10px;
+  background:var(--border2);color:var(--muted);
+  padding:1px 6px;border-radius:10px;flex-shrink:0;
+}
+.cat-row.active .cat-count{background:var(--accent);color:#000}
+
+/* caret / expand toggle */
+.cat-caret{
+  width:12px;flex-shrink:0;font-size:9px;color:var(--muted);
+  display:inline-block;text-align:center;user-select:none;
+  transition:transform .12s,color .12s;
+}
+.cat-caret.open{transform:rotate(90deg)}
+.cat-caret.toggle:hover{color:var(--accent)}
+
+/* subcategory rows */
+.cat-sub{padding-left:30px}
+.cat-sub .cat-name{font-size:12px;color:var(--muted)}
+.cat-sub.active .cat-name{color:var(--accent)}
+.cat-sub:not(.active){border-left-color:var(--border2)}
+
+/* per-row "add subcategory" button (parent rows) */
+.cat-add{
+  visibility:hidden;background:none;border:none;color:var(--muted);
+  font-size:15px;line-height:1;padding:0 4px;flex-shrink:0;border-radius:3px;
+}
+.cat-row:hover .cat-add{visibility:visible}
+.cat-add:hover{color:var(--accent);background:var(--border2)}
+
+/* per-row "delete category" button */
+.cat-del{
+  visibility:hidden;background:none;border:none;color:var(--muted);
+  font-size:13px;line-height:1;padding:0 4px;flex-shrink:0;border-radius:3px;
+}
+.cat-row:hover .cat-del{visibility:visible}
+.cat-del:hover{color:var(--red);background:var(--red-lo)}
+
+/* ─── MAIN AREA ──────────────────────────────────────────── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ─── CATEGORY HEADER / BREADCRUMB ───────────────────────── */
+.crumb-bar{
+  display:flex;align-items:center;gap:12px;
+  padding:11px 16px;background:var(--surface);
+  border-bottom:1px solid var(--border2);flex-shrink:0;
+}
+.crumb{display:flex;align-items:center;gap:7px;min-width:0;font-size:15px;font-weight:600}
+.crumb-ico{font-size:16px;flex-shrink:0}
+.crumb-parent{color:var(--muted);font-weight:500;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.crumb-parent:hover{color:var(--accent)}
+.crumb-sep{color:var(--dim);flex-shrink:0}
+.crumb-cur{color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb-count{
+  flex-shrink:0;font-family:var(--mono);font-size:11px;
+  color:var(--muted);background:var(--card);border:1px solid var(--border);
+  padding:2px 9px;border-radius:10px;
+}
+/* per-category summary chips */
+.crumb-stats{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.cstat{
+  display:flex;align-items:baseline;gap:5px;
+  padding:3px 9px;border-radius:10px;
+  background:var(--card);border:1px solid var(--border);
+}
+.cstat .lbl{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.cstat b{font-family:var(--mono);font-size:12px;font-weight:700}
+.cstat.mag b{color:var(--accent)}
+.cstat.use b{color:#A78BFA}
+.cstat.av  b{color:var(--green)}
+.cstat.low b{color:var(--amber)}
+.cstat.out b{color:var(--red)}
+.cstat.dim{opacity:.45}
+
+/* ─── TOOLBAR ────────────────────────────────────────────── */
+.toolbar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.search-wrap{flex:1;min-width:140px;position:relative}
+.search-wrap svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.search-wrap input{
+  width:100%;padding:6px 10px 6px 30px;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--r);
+  color:var(--text);font-family:var(--mono);font-size:12px;outline:none;
+  transition:border-color .15s;
+}
+.search-wrap input:focus{border-color:var(--accent)}
+.search-wrap input::placeholder{color:var(--dim)}
+
+select.ctrl{
+  padding:6px 8px;background:var(--bg);border:1px solid var(--border);
+  border-radius:var(--r);color:var(--text);font-size:12px;outline:none;cursor:pointer;
+}
+select.ctrl:focus{border-color:var(--accent)}
+
+.view-toggle{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:2px;gap:2px}
+.vbtn{padding:3px 7px;border:none;background:none;color:var(--muted);border-radius:4px;font-size:15px;transition:all .1s}
+.vbtn.active{background:var(--card);color:var(--accent)}
+
+.btn{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:6px 13px;border-radius:var(--r);border:none;
+  font-size:12px;font-weight:600;transition:opacity .15s,filter .15s;
+}
+.btn:hover{filter:brightness(1.1)}
+.btn-primary{background:var(--accent);color:#000}
+.btn-ghost{background:var(--card);color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-sm{padding:4px 9px;font-size:11px}
+#favToggle.on,#detailFav.on{background:var(--amber-lo);border-color:var(--amber);color:var(--amber)}
+
+/* ─── GRID / LIST ────────────────────────────────────────── */
+.grid-area{flex:1;overflow-y:auto;padding:14px}
+
+.grid-area.view-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  grid-auto-rows:max-content;
+  gap:12px;align-content:start;
+}
+.grid-area.view-list{display:flex;flex-direction:column;gap:6px}
+
+/* ─── CARD (GRID) ────────────────────────────────────────── */
+.ccard{
+  position:relative;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r2);
+  overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s;
+  display:flex;flex-direction:column;
+}
+.ccard:hover{border-color:var(--accent);transform:translateY(-1px)}
+
+/* favorite star */
+.fav-btn{
+  position:absolute;top:8px;right:8px;z-index:2;
+  width:26px;height:26px;border-radius:50%;border:none;
+  background:rgba(13,17,23,.55);color:#C9D1D9;font-size:15px;line-height:1;
+  display:grid;place-items:center;transition:transform .1s,color .1s,background .1s;
+}
+.fav-btn:hover{transform:scale(1.15);color:var(--amber)}
+.fav-btn.on{color:var(--amber)}
+/* inline star for list rows */
+.fav-btn.inline{position:static;width:22px;height:22px;background:none;font-size:15px;flex-shrink:0}
+
+.ccard-img{width:100%;height:110px;flex-shrink:0;object-fit:cover;display:block;background:var(--surface)}
+.ccard-ph{
+  width:100%;height:110px;flex-shrink:0;background:var(--surface);
+  display:grid;place-items:center;font-size:30px;color:var(--dim);
+}
+.ccard-body{padding:10px 12px;flex:1;display:flex;flex-direction:column;gap:6px}
+.ccard-name{
+  font-family:var(--mono);font-size:12px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.ccard-cat{font-size:11px;color:var(--muted)}
+.ccard-foot{display:flex;align-items:center;justify-content:space-between;margin-top:auto}
+
+/* ─── LIST ROW ───────────────────────────────────────────── */
+.crow{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:9px 14px;display:flex;align-items:center;gap:12px;
+  cursor:pointer;transition:border-color .15s;
+}
+.crow:hover{border-color:var(--accent)}
+.crow-thumb{width:36px;height:36px;border-radius:5px;object-fit:cover;background:var(--surface);flex-shrink:0}
+.crow-ph{width:36px;height:36px;border-radius:5px;background:var(--surface);flex-shrink:0;display:grid;place-items:center;font-size:16px;color:var(--dim)}
+.crow-name{font-family:var(--mono);font-size:12px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow-cat{font-size:11px;color:var(--muted);min-width:120px;flex-shrink:0}
+.crow-notes{font-size:11px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ─── QTY BADGE + LED ────────────────────────────────────── */
+.qty-badge{
+  font-family:var(--mono);font-size:11px;font-weight:700;
+  display:flex;align-items:center;gap:5px;
+  padding:3px 8px;border-radius:4px;flex-shrink:0;
+}
+.qty-badge.ok    {background:var(--green-lo);color:var(--green)}
+.qty-badge.warn  {background:var(--amber-lo);color:var(--amber)}
+.qty-badge.bad   {background:var(--red-lo)  ;color:var(--red)  }
+.qty-badge.inuse {background:rgba(167,139,250,.14);color:#A78BFA}
+.led{width:6px;height:6px;border-radius:50%}
+.led.ok  {background:var(--green);box-shadow:0 0 5px var(--green)}
+.led.warn{background:var(--amber);box-shadow:0 0 5px var(--amber)}
+.led.bad {background:var(--red)  ;box-shadow:0 0 5px var(--red)  }
+.led.inuse{background:#A78BFA;box-shadow:0 0 5px #A78BFA}
+
+/* ─── BADGES ROW ─────────────────────────────────────────── */
+.badges-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+
+/* ─── QTY CONTROLS ───────────────────────────────────────── */
+.qctrl{display:flex;align-items:center;gap:3px}
+.qbtn{
+  width:20px;height:20px;border-radius:3px;
+  border:1px solid var(--border);background:var(--surface);
+  color:var(--muted);font-size:14px;font-weight:700;line-height:0;
+  display:grid;place-items:center;transition:border-color .1s,color .1s;
+}
+.qbtn:hover{border-color:var(--accent);color:var(--accent)}
+.qbtn.use:hover{border-color:#A78BFA;color:#A78BFA}
+
+/* controls section on card footer */
+.card-controls{
+  display:flex;flex-direction:column;gap:4px;align-items:flex-end;
+  onclick:event.stopPropagation();
+}
+.ctrl-row{display:flex;align-items:center;gap:3px}
+.ctrl-label{font-family:var(--mono);font-size:9px;color:var(--dim);min-width:26px;text-align:right}
+
+/* ─── EMPTY STATE ────────────────────────────────────────── */
+.empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:60px 20px;text-align:center;color:var(--muted);
+  grid-column:1/-1;
+}
+.empty-icon{font-size:42px;opacity:.4}
+.empty h3{font-size:15px;color:var(--text)}
+
+/* ─── MODAL ──────────────────────────────────────────────── */
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);
+  z-index:100;display:flex;align-items:center;justify-content:center;padding:16px;
+  opacity:0;pointer-events:none;transition:opacity .18s;
+}
+.overlay.open{opacity:1;pointer-events:all}
+.modal{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  width:100%;max-width:500px;max-height:92vh;overflow-y:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+  transform:translateY(10px);transition:transform .18s;
+}
+.overlay.open .modal{transform:translateY(0)}
+.modal-sm{max-width:340px}
+
+.modal-head{
+  padding:16px 18px 12px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.modal-title{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent)}
+.modal-x{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;padding:0 2px}
+.modal-x:hover{color:var(--text)}
+.modal-body{padding:18px}
+
+/* ─── FORM ───────────────────────────────────────────────── */
+.fg{margin-bottom:14px}
+.flabel{
+  display:block;font-family:var(--mono);font-size:10px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:5px;
+}
+.req{color:var(--red)}
+.finput,.fselect,.ftextarea{
+  width:100%;padding:7px 11px;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--r);
+  color:var(--text);font-size:13px;outline:none;transition:border-color .15s;
+}
+.finput:focus,.fselect:focus,.ftextarea:focus{border-color:var(--accent)}
+.ftextarea{resize:vertical;min-height:64px}
+.frow{display:flex;gap:10px}
+.frow .fg{flex:1}
+
+/* ─── IMAGE UPLOAD ───────────────────────────────────────── */
+.upload-zone{
+  border:2px dashed var(--border);border-radius:var(--r);padding:18px;
+  text-align:center;cursor:pointer;transition:border-color .15s,background .15s;
+  position:relative;
+}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:var(--accent-lo)}
+.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.upload-hint{font-size:11px;color:var(--muted);margin-top:4px}
+.img-preview-wrap{text-align:center;margin-top:8px;position:relative;display:inline-block}
+.img-preview-wrap img{max-height:90px;border-radius:var(--r);border:1px solid var(--border)}
+.img-remove{
+  position:absolute;top:-7px;right:-7px;
+  width:18px;height:18px;border-radius:50%;
+  background:var(--red);border:none;color:#fff;
+  font-size:11px;display:grid;place-items:center;
+}
+
+/* ─── DETAIL MODAL ───────────────────────────────────────── */
+.detail-img{width:100%;max-height:180px;object-fit:cover;border-radius:var(--r);margin-bottom:14px}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.detail-field label{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;display:block}
+.detail-field .dval{font-size:13px}
+.detail-field .dval.mono{font-family:var(--mono);color:var(--accent)}
+.detail-actions{display:flex;gap:8px;justify-content:flex-end}
+
+/* ─── TOAST ──────────────────────────────────────────────── */
+#toasts{position:fixed;bottom:18px;right:18px;z-index:999;display:flex;flex-direction:column;gap:7px;pointer-events:none}
+.toast{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:9px 14px;font-size:12px;color:var(--text);
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+  animation:slideUp .2s ease;
+}
+.toast.ok  {border-left:3px solid var(--green)}
+.toast.err {border-left:3px solid var(--red)}
+@keyframes slideUp{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ─── MISC ───────────────────────────────────────────────── */
+.ml-auto{margin-left:auto}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-chip">⚡</div>
+    EL<span class="logo-sub">DB</span>
+    <span class="logo-sub" style="font-weight:400">/ magazyn elektroniki</span>
+  </div>
+  <div class="ml-auto">
+    <button class="btn btn-primary" onclick="UI.openAdd()">+ Dodaj komponent</button>
+  </div>
+</header>
+
+<!-- STAT STRIP -->
+<div class="statstrip">
+  <div class="stat clk" data-status="all" title="Pokaż wszystkie" onclick="toggleStatus('all')">
+    <div class="stat-v blue" id="sTotal">—</div><div class="stat-l">Rodzaje</div>
+  </div>
+  <!-- equation: W magazynie = W użyciu + Dostępne -->
+  <div class="stat-eq">
+    <div class="eq-part clk" data-status="in_stock" title="Filtruj: w magazynie (ilość > 0)" onclick="toggleStatus('in_stock')">
+      <div class="eq-num total" id="sSumQty">—</div>
+      <div class="stat-l">W magazynie</div>
+    </div>
+    <div class="eq-op">=</div>
+    <div class="eq-part clk" data-status="in_use" title="Filtruj: w użyciu" onclick="toggleStatus('in_use')">
+      <div class="eq-num inuse" id="sSumInUse">—</div>
+      <div class="stat-l">W użyciu</div>
+    </div>
+    <div class="eq-op">+</div>
+    <div class="eq-part clk" data-status="available" title="Filtruj: dostępne" onclick="toggleStatus('available')">
+      <div class="eq-num avail" id="sSumAvail">—</div>
+      <div class="stat-l">Dostępne</div>
+    </div>
+  </div>
+  <div class="stat clk" data-status="low" title="Filtruj: niski stan (≤5)" onclick="toggleStatus('low')">
+    <div class="stat-v warn" id="sLow">—</div><div class="stat-l">Niski stan (≤5)</div>
+  </div>
+  <div class="stat clk" data-status="out" title="Filtruj: brak dostępnych" onclick="toggleStatus('out')">
+    <div class="stat-v bad"  id="sOut">—</div><div class="stat-l">Brak dostępnych</div>
+  </div>
+</div>
+
+<!-- BODY -->
+<div class="body">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      Kategorie
+      <button class="btn btn-ghost btn-sm" onclick="UI.openCatAdd()" title="Dodaj kategorię">+</button>
+    </div>
+    <div class="cat-list" id="catList"></div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="crumb-bar">
+      <div class="crumb" id="crumbPath"></div>
+      <div class="crumb-stats" id="crumbStats"></div>
+      <div class="crumb-count" id="crumbCount"></div>
+    </div>
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.868-3.834zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+        <input id="searchQ" placeholder="Szukaj…" oninput="debounce(loadComponents,280)">
+      </div>
+      <select class="ctrl" id="sortSel" onchange="loadComponents()">
+        <option value="newest">Najnowsze</option>
+        <option value="oldest">Najstarsze</option>
+        <option value="name_az">Nazwa A–Z</option>
+        <option value="name_za">Nazwa Z–A</option>
+        <option value="qty_asc">Ilość ↑</option>
+        <option value="qty_desc">Ilość ↓</option>
+      </select>
+      <select class="ctrl" id="statusSel" onchange="applyStatus(this.value)">
+        <option value="all">Wszystkie statusy</option>
+        <option value="in_stock">W magazynie</option>
+        <option value="in_use">W użyciu</option>
+        <option value="available">Dostępne</option>
+        <option value="low">Niski stan (≤5)</option>
+        <option value="out">Brak dostępnych</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" id="favToggle" title="Pokaż tylko ulubione" onclick="toggleFavFilter()">☆ Ulubione</button>
+      <div class="view-toggle">
+        <button class="vbtn active" id="vGrid" title="Siatka" onclick="setView('grid')">⊞</button>
+        <button class="vbtn"        id="vList" title="Lista"  onclick="setView('list')">☰</button>
+      </div>
+    </div>
+
+    <div class="grid-area view-grid" id="gridArea"></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: FORM ════════════════════════════════════════════════════════ -->
+<div class="overlay" id="formOverlay">
+<div class="modal">
+  <div class="modal-head">
+    <div class="modal-title" id="formTitle">// nowy_komponent</div>
+    <button class="modal-x" onclick="closeOverlay('formOverlay')">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="fId">
+    <div class="fg">
+      <label class="flabel">Nazwa <span class="req">*</span></label>
+      <input  class="finput" id="fName" placeholder="np. STM32F103C8T6" required>
+    </div>
+    <div class="frow">
+      <div class="fg">
+        <label class="flabel">Ilość w magazynie <span class="req">*</span></label>
+        <input class="finput" id="fQty" type="number" min="0" value="1">
+      </div>
+      <div class="fg">
+        <label class="flabel">W użyciu</label>
+        <input class="finput" id="fInUse" type="number" min="0" value="0"
+               placeholder="0" title="Nie więcej niż łączna ilość">
+      </div>
+    </div>
+    <div class="fg">
+      <label class="flabel">Kategoria</label>
+      <select class="fselect" id="fCat"></select>
+    </div>
+    <div class="fg">
+      <label class="flabel">Notatki</label>
+      <textarea class="ftextarea" id="fNotes" placeholder="Opcjonalny opis, numer katalogowy…"></textarea>
+    </div>
+    <div class="fg">
+      <label class="flabel">Zdjęcie</label>
+      <div class="upload-zone" id="uploadZone"
+           ondragover="zoneDrag(event,true)" ondragleave="zoneDrag(event,false)" ondrop="zoneDrop(event)">
+        <input type="file" id="fImg" accept="image/*" onchange="imgPicked(event)">
+        <div id="uploadHint">
+          <div style="font-size:24px;color:var(--dim)">📷</div>
+          <div>Kliknij lub przeciągnij zdjęcie</div>
+          <div class="upload-hint">JPG · PNG · WEBP — zostanie automatycznie skompresowane</div>
+        </div>
+        <div id="imgPreviewWrap" style="display:none">
+          <div class="img-preview-wrap">
+            <img id="imgPrev" src="" alt="podgląd">
+            <button type="button" class="img-remove" onclick="clearImg(event)">×</button>
+          </div>
+          <div class="upload-hint" id="imgInfo" style="margin-top:6px"></div>
+        </div>
+      </div>
+      <input type="hidden" id="fRemoveImg" value="0">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeOverlay('formOverlay')">Anuluj</button>
+      <button class="btn btn-primary" id="fSubmit" onclick="submitForm()">Zapisz</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ MODAL: DETAIL ══════════════════════════════════════════════════════ -->
+<div class="overlay" id="detailOverlay">
+<div class="modal">
+  <div class="modal-head">
+    <div class="modal-title" id="detailTitle">// szczegóły</div>
+    <button class="modal-x" onclick="closeOverlay('detailOverlay')">×</button>
+  </div>
+  <div class="modal-body" id="detailBody"></div>
+</div>
+</div>
+
+<!-- ═══ MODAL: ADD CATEGORY ════════════════════════════════════════════════ -->
+<div class="overlay" id="catOverlay">
+<div class="modal modal-sm">
+  <div class="modal-head">
+    <div class="modal-title">// nowa_kategoria</div>
+    <button class="modal-x" onclick="closeOverlay('catOverlay')">×</button>
+  </div>
+  <div class="modal-body">
+    <div class="fg">
+      <label class="flabel">Nazwa</label>
+      <input class="finput" id="catNameIn" placeholder="np. Regulatory napięcia"
+             onkeydown="if(event.key==='Enter')addCat()">
+    </div>
+    <div class="fg">
+      <label class="flabel">Kategoria nadrzędna</label>
+      <select class="fselect" id="catParentIn"></select>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeOverlay('catOverlay')">Anuluj</button>
+      <button class="btn btn-primary" onclick="addCat()">Dodaj</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+'use strict';
+
+// ─── STATE ──────────────────────────────────────────────────────────────────
+let cats        = [];
+let expandedCats = new Set();   // ids of expanded main categories
+let activeCat   = 'all';
+let currentView = 'grid';
+let editId      = null;
+let favOnly     = false;    // favorites-only filter
+let removeImgFlag = false;
+let pendingImage  = null;   // compressed image File ready to upload
+let _debTimer   = null;
+
+// ─── UTILS ──────────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const qs = sel => document.querySelector(sel);
+
+function qCls(avail){ return avail === 0 ? 'bad' : avail <= 5 ? 'warn' : 'ok' }
+
+function ledBadge(avail){
+  const c = qCls(avail);
+  return `<span class="qty-badge ${c}"><span class="led ${c}"></span>${avail} dost.</span>`;
+}
+function inUseBadge(inUse){
+  if(!inUse) return '';
+  return `<span class="qty-badge inuse"><span class="led inuse"></span>${inUse} w użyciu</span>`;
+}
+
+function catEmoji(name=''){
+  const m = {'Rezystory':'🔲','Kondensatory':'⚡','Tranzystory':'🔺',
+             'Układy scalone (IC)':'🔲','Diody':'💡','Mikrokontrolery':'🧠',
+             'Czujniki':'👁','Moduły RF':'📡','Złącza':'🔌','Inne':'🔩'};
+  return m[name] || '🔩';
+}
+
+function toast(msg, type='ok'){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = (type==='ok'?'✓ ':'✗ ') + msg;
+  $('toasts').appendChild(el);
+  setTimeout(()=>el.remove(), 3200);
+}
+
+function debounce(fn, ms){
+  clearTimeout(_debTimer);
+  _debTimer = setTimeout(fn, ms);
+}
+
+// ─── OVERLAY HELPERS ────────────────────────────────────────────────────────
+function openOverlay(id)  { $(id).classList.add('open')    }
+function closeOverlay(id) { $(id).classList.remove('open') }
+document.querySelectorAll('.overlay').forEach(el=>{
+  el.addEventListener('click', e=>{ if(e.target===el) closeOverlay(el.id) });
+});
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape') document.querySelectorAll('.overlay.open').forEach(o=>closeOverlay(o.id));
+});
+
+// ─── VIEW ────────────────────────────────────────────────────────────────────
+function setView(v){
+  currentView = v;
+  $('gridArea').className = `grid-area view-${v}`;
+  $('vGrid').classList.toggle('active', v==='grid');
+  $('vList').classList.toggle('active', v==='list');
+  loadComponents();
+}
+
+// ─── STATS ──────────────────────────────────────────────────────────────────
+async function loadStats(){
+  // top strip — always the whole warehouse
+  const s = await fetch('/api/stats').then(r=>r.json());
+  $('sTotal').textContent    = s.total;
+  $('sSumQty').textContent   = s.sumQty;
+  $('sSumInUse').textContent = s.sumInUse;
+  $('sSumAvail').textContent = s.sumAvailable;
+  $('sLow').textContent      = s.lowStock;
+  $('sOut').textContent      = s.outStock;
+  // favorites filter button — show count
+  $('favToggle').textContent = `${favOnly?'★':'☆'} Ulubione${s.favorites?` (${s.favorites})`:''}`;
+  // crumb bar — summary of the selected category (incl. its subcategories)
+  loadCatStats();
+}
+
+async function loadCatStats(){
+  const box = $('crumbStats');
+  if(activeCat === 'all'){ box.innerHTML = ''; return; }
+  const s = await fetch(`/api/stats?cat=${activeCat}`).then(r=>r.json());
+  const chip = (cls,label,val,dim=false) =>
+    `<span class="cstat ${cls} ${dim?'dim':''}"><span class="lbl">${label}</span><b>${val}</b></span>`;
+  box.innerHTML =
+    chip('mag','W magazynie', s.sumQty) +
+    chip('use','W użyciu',    s.sumInUse) +
+    chip('av', 'Dostępne',    s.sumAvailable) +
+    chip('low','Niski',       s.lowStock, s.lowStock===0) +
+    chip('out','Brak',        s.outStock, s.outStock===0);
+}
+
+// ─── CATEGORIES ─────────────────────────────────────────────────────────────
+async function loadCats(){
+  cats = await fetch('/api/categories').then(r=>r.json());
+  renderCatList();
+  fillCatSelect();
+}
+
+const MAX_DEPTH = 3;                             // 1=główna, 2=podkat., 3=pod-podkat.
+const byName = (a,b) => a.name.localeCompare(b.name,'pl');
+const mainCats  = () => cats.filter(c=>!c.parent_id).sort(byName);
+const subsOf    = id => cats.filter(c=>c.parent_id===id).sort(byName);
+
+// total items in a category including every descendant
+function subtreeCount(c){
+  return c.count + subsOf(c.id).reduce((s,ch)=>s+subtreeCount(ch),0);
+}
+// number of descendant categories (for delete confirmation)
+function countDescendants(id){
+  return subsOf(id).reduce((s,ch)=>s+1+countDescendants(ch.id),0);
+}
+
+function renderCatList(){
+  const all_count = cats.reduce((s,c)=>s+c.count,0);
+  let html = `<div class="cat-row ${activeCat==='all'?'active':''}" style="padding-left:14px" onclick="selectCat('all')">
+    <span class="cat-caret" style="visibility:hidden">▸</span>
+    <span class="cat-name">Wszystkie</span>
+    <span class="cat-count">${all_count}</span>
+  </div>`;
+  for(const m of mainCats()) html += catRowHtml(m, 0);
+  $('catList').innerHTML = html;
+}
+
+// depth: 0=główna, 1=podkat., 2=pod-podkat.
+function catRowHtml(c, depth){
+  const kids    = subsOf(c.id);
+  const open    = expandedCats.has(c.id);
+  const pad     = 14 + depth*16;
+  const caret   = kids.length
+    ? `<span class="cat-caret toggle ${open?'open':''}" onclick="toggleCat(event,${c.id})">▸</span>`
+    : `<span class="cat-caret" style="visibility:hidden">▸</span>`;
+  // a node can still gain children only if it is above the deepest level
+  const addBtn  = (depth < MAX_DEPTH-1)
+    ? `<button class="cat-add" title="Dodaj podkategorię" onclick="UI.openSubAdd(event,${c.id})">+</button>`
+    : '';
+  let html = `<div class="cat-row ${depth>0?'cat-sub':''} ${activeCat==c.id?'active':''}" style="padding-left:${pad}px" onclick="selectCat(${c.id})">
+    ${caret}
+    <span class="cat-name">${esc(c.name)}</span>
+    ${addBtn}
+    <button class="cat-del" title="Usuń kategorię" onclick="deleteCat(event,${c.id},${countDescendants(c.id)})">🗑</button>
+    <span class="cat-count">${subtreeCount(c)}</span>
+  </div>`;
+  if(open) for(const k of kids) html += catRowHtml(k, depth+1);
+  return html;
+}
+
+function toggleCat(e, id){
+  e.stopPropagation();
+  expandedCats.has(id) ? expandedCats.delete(id) : expandedCats.add(id);
+  renderCatList();
+}
+
+function fillCatSelect(){
+  const prev = $('fCat').value;
+  let opts = '<option value="">— bez kategorii —</option>';
+  const walk = (c, depth) => {
+    const prefix = depth ? '&nbsp;'.repeat(depth*2) + '└ ' : '';
+    opts += `<option value="${c.id}">${prefix}${esc(c.name)}</option>`;
+    subsOf(c.id).forEach(k=>walk(k, depth+1));
+  };
+  mainCats().forEach(m=>walk(m,0));
+  $('fCat').innerHTML = opts;
+  if(prev) $('fCat').value = prev;
+}
+
+function fillCatParentSelect(sel=''){
+  let opts = '<option value="">— kategoria główna —</option>';
+  const walk = (c, depth) => {
+    // only categories that can still hold children are valid parents
+    if(depth < MAX_DEPTH-1){
+      const prefix = depth ? '&nbsp;'.repeat(depth*2) + '└ ' : '';
+      opts += `<option value="${c.id}">${prefix}${esc(c.name)}</option>`;
+    }
+    subsOf(c.id).forEach(k=>walk(k, depth+1));
+  };
+  mainCats().forEach(m=>walk(m,0));
+  $('catParentIn').innerHTML = opts;
+  $('catParentIn').value = sel;
+}
+
+function selectCat(id){
+  activeCat = id;
+  const c = cats.find(x=>x.id===id);
+  if(c && subsOf(c.id).length) expandedCats.add(id);   // auto-expand if it has children
+  renderCatList();
+  loadComponents();
+  loadCatStats();   // refresh the per-category summary in the crumb bar
+}
+
+async function addCat(){
+  const name = $('catNameIn').value.trim();
+  if(!name) return toast('Podaj nazwę kategorii','err');
+  const parent_id = $('catParentIn').value || null;
+  const r = await fetch('/api/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,parent_id})});
+  if(r.ok){
+    closeOverlay('catOverlay');
+    $('catNameIn').value='';
+    if(parent_id){ expandedCats.add(Number(parent_id)); toast(`Podkategoria „${name}" dodana`); }
+    else toast(`Kategoria „${name}" dodana`);
+    await loadCats();
+    loadStats();
+  } else {
+    const e = await r.json();
+    toast(e.error||'Błąd','err');
+  }
+}
+
+async function deleteCat(e, id, subCount){
+  e.stopPropagation();
+  const c = cats.find(x=>x.id===id);
+  const name = c ? c.name : 'kategorię';
+  let msg = `Usunąć kategorię „${name}"?`;
+  if(subCount > 0) msg += `\n\nUsunie to też ${subCount} podkategorii.`;
+  msg += '\n\nKomponenty nie zostaną skasowane — stracą tylko przypisanie do tej kategorii.';
+  if(!confirm(msg)) return;
+
+  const r = await fetch(`/api/categories/${id}`,{method:'DELETE'});
+  if(r.ok){
+    expandedCats.delete(id);
+    toast(`Kategoria „${name}" usunięta`);
+    await loadCats();
+    // active filter may point at a category that no longer exists (deleted, or cascaded sub)
+    if(activeCat !== 'all' && !cats.some(x=>x.id==activeCat)){
+      activeCat = 'all';
+      renderCatList();
+    }
+    loadComponents();
+    loadStats();
+  } else {
+    toast('Nie udało się usunąć kategorii','err');
+  }
+}
+
+// ─── STATUS FILTER (stat strip tiles ↔ dropdown) ─────────────────────────────
+function highlightStatus(s){
+  document.querySelectorAll('.statstrip [data-status]').forEach(el=>
+    el.classList.toggle('stat-active', s!=='all' && el.dataset.status===s));
+}
+function applyStatus(s){                 // set the active status filter
+  $('statusSel').value = s;
+  highlightStatus(s);
+  loadComponents();
+}
+function toggleStatus(s){                 // click a tile: turn it on, or off if already active
+  applyStatus($('statusSel').value === s ? 'all' : s);
+}
+
+// ─── COMPONENTS ─────────────────────────────────────────────────────────────
+async function loadComponents(){
+  const q      = $('searchQ').value.trim();
+  const sort   = $('sortSel').value;
+  const status = $('statusSel').value;
+  const params = new URLSearchParams({sort});
+  if(activeCat !== 'all') params.set('cat', activeCat);
+  if(q)                   params.set('q', q);
+  if(status !== 'all')    params.set('status', status);
+  if(favOnly)             params.set('fav', '1');
+
+  const data = await fetch(`/api/components?${params}`).then(r=>r.json());
+  renderComponents(data);
+}
+
+function toggleFavFilter(){
+  favOnly = !favOnly;
+  const b = $('favToggle');
+  b.classList.toggle('on', favOnly);
+  b.textContent = (favOnly ? '★ Ulubione' : '☆ Ulubione');
+  loadComponents();
+}
+
+// Toggle a single component's favorite state (from card / row / detail)
+async function toggleFav(id, el, ev){
+  if(ev) ev.stopPropagation();
+  const r = await fetch(`/api/components/${id}/favorite`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:'{}' });
+  if(!r.ok) return toast('Nie udało się zmienić ulubionych','err');
+  const { favorite } = await r.json();
+  if(favOnly && !favorite){
+    loadComponents();                    // it left the current (favorites) view
+  } else if(el){
+    el.classList.toggle('on', !!favorite);
+    el.textContent = favorite ? '★' : '☆';
+    el.title = favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych';
+  }
+  loadStats();
+}
+
+// Toggle favorite from the detail modal
+async function toggleFavDetail(id){
+  const r = await fetch(`/api/components/${id}/favorite`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:'{}' });
+  if(!r.ok) return toast('Nie udało się zmienić ulubionych','err');
+  const { favorite } = await r.json();
+  const b = $('detailFav');
+  if(b){ b.textContent = favorite ? '★ Ulubiony' : '☆ Do ulubionych'; b.classList.toggle('on', !!favorite); }
+  loadComponents();
+  loadStats();
+}
+
+function plural(n){
+  if(n===1) return 'pozycja';
+  const t=n%10, h=n%100;
+  return (t>=2 && t<=4 && !(h>=12 && h<=14)) ? 'pozycje' : 'pozycji';
+}
+
+function renderHeader(count){
+  const path = $('crumbPath');
+  const c = activeCat==='all' ? null : cats.find(x=>x.id==activeCat);
+  if(!c){
+    path.innerHTML = `<span class="crumb-ico">📦</span><span class="crumb-cur">Wszystkie komponenty</span>`;
+  } else {
+    // build the full chain: root › … › current
+    const chain = [];
+    let cur = c;
+    while(cur){ chain.unshift(cur); cur = cur.parent_id ? cats.find(x=>x.id===cur.parent_id) : null; }
+    let html = `<span class="crumb-ico">${catEmoji(chain[0].name)}</span>`;
+    chain.forEach((node,i)=>{
+      html += (i === chain.length-1)
+        ? `<span class="crumb-cur">${esc(node.name)}</span>`
+        : `<span class="crumb-parent" onclick="selectCat(${node.id})">${esc(node.name)}</span><span class="crumb-sep">›</span>`;
+    });
+    path.innerHTML = html;
+  }
+  $('crumbCount').textContent = `${count} ${plural(count)}`;
+}
+
+function renderComponents(data){
+  renderHeader(data.length);
+  if(!data.length){
+    $('gridArea').innerHTML=`<div class="empty">
+      <div class="empty-icon">📭</div>
+      <h3>Brak komponentów</h3>
+      <p>Kliknij „+ Dodaj komponent" aby dodać pierwszy wpis.</p>
+    </div>`;
+    return;
+  }
+  $('gridArea').innerHTML = data.map(c =>
+    currentView === 'grid' ? cardHtml(c) : rowHtml(c)
+  ).join('');
+}
+
+function favStar(c, inline){
+  const title = c.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych';
+  return `<button class="fav-btn${inline?' inline':''}${c.favorite?' on':''}" title="${title}" onclick="toggleFav(${c.id},this,event)">${c.favorite?'★':'☆'}</button>`;
+}
+
+function cardHtml(c){
+  const avail = c.qty - c.in_use;
+  const img = c.image
+    ? `<img class="ccard-img" src="${c.image}" alt="${esc(c.name)}" loading="lazy">`
+    : `<div class="ccard-ph">${catEmoji(c.cat_name)}</div>`;
+  return `<div class="ccard" onclick="openDetail(${c.id})">
+    ${favStar(c,false)}
+    ${img}
+    <div class="ccard-body">
+      <div class="ccard-name">${esc(c.name)}</div>
+      <div class="ccard-cat">${esc(c.cat_name||'—')}</div>
+      <div class="ccard-foot">
+        <div class="badges-row">
+          ${ledBadge(avail)}
+          ${c.in_use ? inUseBadge(c.in_use) : ''}
+        </div>
+        <div class="card-controls" onclick="event.stopPropagation()">
+          <div class="ctrl-row">
+            <span class="ctrl-label">mag.</span>
+            <button class="qbtn" onclick="bump(${c.id},'qty',-1,this)">−</button>
+            <button class="qbtn" onclick="bump(${c.id},'qty',+1,this)">+</button>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label" style="color:#A78BFA99">użyc.</span>
+            <button class="qbtn use" onclick="bump(${c.id},'in_use',-1,this)">−</button>
+            <button class="qbtn use" onclick="bump(${c.id},'in_use',+1,this)">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function rowHtml(c){
+  const avail = c.qty - c.in_use;
+  const img = c.image
+    ? `<img class="crow-thumb" src="${c.image}" alt="${esc(c.name)}" loading="lazy">`
+    : `<div class="crow-ph">${catEmoji(c.cat_name)}</div>`;
+  return `<div class="crow" onclick="openDetail(${c.id})">
+    ${favStar(c,true)}
+    ${img}
+    <div class="crow-name">${esc(c.name)}</div>
+    <div class="crow-cat">${esc(c.cat_name||'—')}</div>
+    <div class="crow-notes">${esc(c.notes||'')}</div>
+    <div class="badges-row" style="margin-left:auto;flex-shrink:0">
+      ${ledBadge(avail)}
+      ${c.in_use ? inUseBadge(c.in_use) : ''}
+    </div>
+    <div onclick="event.stopPropagation()" style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
+      <div class="ctrl-row">
+        <span class="ctrl-label">mag.</span>
+        <button class="qbtn" onclick="bump(${c.id},'qty',-1,this)">−</button>
+        <button class="qbtn" onclick="bump(${c.id},'qty',+1,this)">+</button>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label" style="color:#A78BFA99">użyc.</span>
+        <button class="qbtn use" onclick="bump(${c.id},'in_use',-1,this)">−</button>
+        <button class="qbtn use" onclick="bump(${c.id},'in_use',+1,this)">+</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function esc(s){ const d=document.createElement('div');d.textContent=s;return d.innerHTML }
+
+// ─── QTY / IN_USE BUMP ──────────────────────────────────────────────────────
+async function bump(id, field, delta, btn){
+  const r = await fetch(`/api/components/${id}/${field}`,{
+    method:'PATCH',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({delta})
+  });
+  if(r.ok){
+    const {qty, in_use, available} = await r.json();
+    const host = btn.closest('.ccard,.crow');
+
+    // update available badge
+    const avBadge = host.querySelector('.qty-badge:not(.inuse)');
+    const avLed   = avBadge?.querySelector('.led');
+    const cls     = qCls(available);
+    if(avBadge){ avBadge.className=`qty-badge ${cls}`; avLed.className=`led ${cls}`; avBadge.innerHTML=`<span class="led ${cls}"></span>${available} dost.`; }
+
+    // update or insert in_use badge
+    let iuBadge = host.querySelector('.qty-badge.inuse');
+    const badgesRow = host.querySelector('.badges-row');
+    if(in_use > 0){
+      if(!iuBadge){ iuBadge=document.createElement('span'); iuBadge.className='qty-badge inuse'; badgesRow?.appendChild(iuBadge); }
+      iuBadge.innerHTML=`<span class="led inuse"></span>${in_use} w użyciu`;
+    } else {
+      iuBadge?.remove();
+    }
+    loadStats();
+  }
+}
+
+// ─── DETAIL ─────────────────────────────────────────────────────────────────
+async function openDetail(id){
+  const c = await fetch(`/api/components/${id}`).then(r=>r.json());
+  const avail = c.qty - c.in_use;
+  $('detailTitle').textContent = `// ${c.name}`;
+  $('detailBody').innerHTML = `
+    ${c.image ? `<img class="detail-img" src="${c.image}" alt="${esc(c.name)}">` : ''}
+    <div class="detail-grid">
+      <div class="detail-field">
+        <label>Dostępne</label>
+        <div class="dval">${ledBadge(avail)}</div>
+      </div>
+      <div class="detail-field">
+        <label>W użyciu</label>
+        <div class="dval">${c.in_use ? inUseBadge(c.in_use) : '<span style="color:var(--dim);font-size:12px">—</span>'}</div>
+      </div>
+      <div class="detail-field" style="grid-column:1/-1">
+        <label>W magazynie łącznie</label>
+        <div class="dval" style="font-family:var(--mono);font-size:13px;color:var(--muted)">
+          ${c.qty} szt. &nbsp;=&nbsp;
+          <span style="color:#A78BFA">${c.in_use} w użyciu</span>
+          &nbsp;+&nbsp;
+          <span style="color:var(--green)">${avail} dostępne</span>
+        </div>
+      </div>
+      <div class="detail-field">
+        <label>Kategoria</label>
+        <div class="dval">${esc(c.cat_name||'—')}</div>
+      </div>
+      ${c.notes ? `<div class="detail-field" style="grid-column:1/-1">
+        <label>Notatki</label>
+        <div class="dval" style="color:var(--muted);font-size:13px">${esc(c.notes)}</div>
+      </div>` : ''}
+      <div class="detail-field">
+        <label>Dodano</label>
+        <div class="dval" style="color:var(--muted);font-size:12px">
+          ${new Date(c.created_at).toLocaleString('pl-PL')}
+        </div>
+      </div>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn-ghost btn-sm${c.favorite?' on':''}" id="detailFav" style="margin-right:auto" onclick="toggleFavDetail(${id})">${c.favorite?'★ Ulubiony':'☆ Do ulubionych'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeOverlay('detailOverlay');UI.openEdit(${id})">✏ Edytuj</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteComp(${id})">🗑 Usuń</button>
+    </div>`;
+  openOverlay('detailOverlay');
+}
+
+async function deleteComp(id){
+  if(!confirm('Usunąć ten komponent?')) return;
+  const r = await fetch(`/api/components/${id}`,{method:'DELETE'});
+  if(r.ok){
+    closeOverlay('detailOverlay');
+    toast('Komponent usunięty');
+    loadComponents(); loadStats(); loadCats();
+  }
+}
+
+// ─── FORM ────────────────────────────────────────────────────────────────────
+const UI = {
+  openAdd(){
+    editId = null; removeImgFlag = false;
+    $('formTitle').textContent = '// nowy_komponent';
+    $('fSubmit').textContent   = 'Zapisz komponent';
+    $('fId').value=''; $('fName').value='';
+    $('fQty').value='1'; $('fInUse').value='0'; $('fNotes').value='';
+    $('fCat').value=''; $('fRemoveImg').value='0';
+    resetImgUI();
+    fillCatSelect();
+    openOverlay('formOverlay');
+  },
+  async openEdit(id){
+    const c = await fetch(`/api/components/${id}`).then(r=>r.json());
+    editId = id; removeImgFlag = false;
+    $('formTitle').textContent = `// edytuj: ${c.name}`;
+    $('fSubmit').textContent   = 'Zapisz zmiany';
+    $('fId').value     = id;
+    $('fName').value   = c.name;
+    $('fQty').value    = c.qty;
+    $('fInUse').value  = c.in_use;
+    $('fNotes').value  = c.notes||'';
+    $('fRemoveImg').value = '0';
+    pendingImage = null;                 // never carry an image over from a previous form
+    $('fImg').value = '';
+    fillCatSelect();
+    $('fCat').value = c.category_id||'';
+    if(c.image){
+      $('uploadHint').style.display='none';
+      $('imgPreviewWrap').style.display='block';
+      $('imgPrev').src = c.image;
+      $('imgInfo').textContent = '';
+    } else {
+      resetImgUI();
+    }
+    openOverlay('formOverlay');
+  },
+  openCatAdd(){
+    $('catNameIn').value='';
+    fillCatParentSelect('');
+    openOverlay('catOverlay');
+    setTimeout(()=>$('catNameIn').focus(),50);
+  },
+  openSubAdd(e, parentId){
+    e.stopPropagation();
+    $('catNameIn').value='';
+    fillCatParentSelect(String(parentId));
+    openOverlay('catOverlay');
+    setTimeout(()=>$('catNameIn').focus(),50);
+  }
+};
+
+async function submitForm(){
+  const name = $('fName').value.trim();
+  if(!name){ toast('Nazwa jest wymagana','err'); return; }
+  const qty   = parseInt($('fQty').value)||0;
+  const inUse = Math.min(parseInt($('fInUse').value)||0, qty);
+
+  const fd = new FormData();
+  fd.append('name',        name);
+  fd.append('qty',         qty);
+  fd.append('in_use',      inUse);
+  fd.append('category_id', $('fCat').value);
+  fd.append('notes',       $('fNotes').value.trim());
+  fd.append('remove_image',$('fRemoveImg').value);
+
+  // pendingImage is the compressed version; fall back to the raw input if needed
+  const imgFile = pendingImage || $('fImg').files[0];
+  if(imgFile) fd.append('image', imgFile);
+
+  const id     = $('fId').value;
+  const url    = id ? `/api/components/${id}` : '/api/components';
+  const method = id ? 'PUT' : 'POST';
+
+  const r = await fetch(url,{method,body:fd});
+  if(r.ok){
+    pendingImage = null;                 // done with this image; don't leak into the next save
+    $('fImg').value = '';
+    closeOverlay('formOverlay');
+    toast(id ? 'Komponent zaktualizowany' : 'Komponent dodany');
+    loadComponents(); loadStats(); loadCats();
+  } else {
+    const e = await r.json();
+    toast(e.error||'Błąd zapisu','err');
+  }
+}
+
+// ─── IMAGE UI + COMPRESSION ──────────────────────────────────────────────────
+const IMG_MAX_SIDE = 1600;   // px — longest edge after downscale
+const IMG_QUALITY  = 0.82;   // JPEG quality
+
+// Downscale + re-encode an image File in the browser. Returns a small JPEG File.
+function compressImage(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width:w, height:h } = img;
+      const scale = Math.min(1, IMG_MAX_SIDE / Math.max(w, h));
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';                 // flatten any transparency (JPEG has none)
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        if(!blob) return reject(new Error('Nie udało się przetworzyć obrazu'));
+        const name = (file.name || 'zdjecie').replace(/\.[^.]+$/, '') + '.jpg';
+        resolve(new File([blob], name, { type: 'image/jpeg' }));
+      }, 'image/jpeg', IMG_QUALITY);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Nieprawidłowy plik graficzny')); };
+    img.src = url;
+  });
+}
+
+async function imgPicked(e){
+  const f = e.target.files[0];
+  if(!f) return;
+  removeImgFlag = false;
+  $('uploadHint').style.display = 'none';
+  $('imgPreviewWrap').style.display = 'block';
+  $('imgPrev').src = URL.createObjectURL(f);            // instant preview from original
+  $('imgInfo').textContent = 'Kompresja…';
+  try {
+    const out = await compressImage(f);
+    // keep whichever is smaller (tiny images may not benefit from re-encoding)
+    pendingImage = out.size < f.size ? out : f;
+    $('imgPrev').src = URL.createObjectURL(pendingImage);
+    $('imgInfo').textContent = `${fmtKB(f.size)} → ${fmtKB(pendingImage.size)}`;
+  } catch(err){
+    pendingImage = f;                                    // fall back to original
+    $('imgInfo').textContent = fmtKB(f.size);
+    toast(err.message || 'Nie udało się skompresować obrazu','err');
+  }
+}
+
+function fmtKB(bytes){
+  return bytes >= 1024*1024 ? (bytes/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(bytes/1024))+' KB';
+}
+
+function clearImg(e){
+  e.stopPropagation();
+  removeImgFlag = true;
+  pendingImage = null;
+  $('fRemoveImg').value = '1';
+  $('fImg').value = '';
+  resetImgUI();
+}
+
+function resetImgUI(){
+  pendingImage = null;
+  $('fImg').value = '';                 // clear the file input too (prevents stale-image leak)
+  $('uploadHint').style.display = 'block';
+  $('imgPreviewWrap').style.display = 'none';
+  $('imgPrev').src = '';
+  $('imgInfo').textContent = '';
+}
+
+function zoneDrag(e, on){
+  e.preventDefault();
+  $('uploadZone').classList.toggle('drag', on);
+}
+function zoneDrop(e){
+  e.preventDefault();
+  $('uploadZone').classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if(f && f.type.startsWith('image/')){
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    $('fImg').files = dt.files;
+    imgPicked({target:{files:[f]}});
+  }
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+async function init(){
+  await loadCats();
+  await loadComponents();
+  await loadStats();
+}
+init();
+</script>
+</body>
+</html>
