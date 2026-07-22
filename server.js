@@ -43,6 +43,14 @@ db.exec(`
     qty          INTEGER NOT NULL DEFAULT 1 CHECK(qty >= 1),
     UNIQUE(project_id, component_id)
   );
+
+  CREATE TABLE IF NOT EXISTS tools (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT,
+    image       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -230,7 +238,10 @@ app.get('/api/components', (req, res) => {
     oldest:   'comp.created_at ASC',
   };
   let sql = `
-    SELECT comp.*, cat.name AS cat_name
+    SELECT comp.*, cat.name AS cat_name,
+      (SELECT GROUP_CONCAT(p.name, ', ')
+         FROM project_components pc JOIN projects p ON p.id = pc.project_id
+         WHERE pc.component_id = comp.id) AS project_names
     FROM components comp
     LEFT JOIN categories cat ON cat.id = comp.category_id
     WHERE 1=1
@@ -246,6 +257,9 @@ app.get('/api/components', (req, res) => {
   if (req.query.fav === '1') { sql += ' AND comp.favorite = 1'; }
   if (req.query.carton === '__none__')      { sql += " AND (comp.carton IS NULL OR comp.carton='')"; }
   else if (req.query.carton)                { sql += ' AND comp.carton = ?'; params.push(req.query.carton); }
+  if (req.query.project === '__none__')     { sql += ' AND comp.id NOT IN (SELECT component_id FROM project_components)'; }
+  else if (req.query.project === '__any__') { sql += ' AND comp.id IN (SELECT component_id FROM project_components)'; }
+  else if (req.query.project)               { sql += ' AND comp.id IN (SELECT component_id FROM project_components WHERE project_id=?)'; params.push(req.query.project); }
   switch (req.query.status) {
     case 'in_stock':  sql += ' AND comp.qty > 0'; break;
     case 'in_use':    sql += ' AND comp.in_use > 0'; break;
@@ -434,6 +448,48 @@ app.post('/api/projects/:id/components', (req, res) => {
 app.delete('/api/projects/:id/components/:cid', (req, res) => {
   db.prepare('DELETE FROM project_components WHERE project_id=? AND component_id=?')
     .run(req.params.id, req.params.cid);
+  res.json({ ok: true });
+});
+
+// ── TOOLS ────────────────────────────────────────────────────────────────────
+app.get('/api/tools', (_req, res) => {
+  res.json(db.prepare('SELECT * FROM tools ORDER BY created_at DESC').all());
+});
+
+app.get('/api/tools/:id', (req, res) => {
+  const t = db.prepare('SELECT * FROM tools WHERE id=?').get(req.params.id);
+  t ? res.json(t) : res.status(404).json({ error: 'Nie znaleziono' });
+});
+
+app.post('/api/tools', upload.single('image'), (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Nazwa wymagana' });
+  const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const r = db.prepare('INSERT INTO tools(name,description,image) VALUES(?,?,?)')
+    .run(name, req.body.description?.trim() || null, image);
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/tools/:id', upload.single('image'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM tools WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
+  let image = existing.image;
+  if (req.body.remove_image === '1') { removeFile(image); image = null; }
+  if (req.file) { removeFile(image); image = `/uploads/${req.file.filename}`; }
+  db.prepare('UPDATE tools SET name=?,description=?,image=? WHERE id=?').run(
+    (req.body.name || '').trim() || existing.name,
+    (req.body.description || '').trim() || null,
+    image,
+    req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/tools/:id', (req, res) => {
+  const t = db.prepare('SELECT image FROM tools WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Nie znaleziono' });
+  removeFile(t.image);
+  db.prepare('DELETE FROM tools WHERE id=?').run(req.params.id);
   res.json({ ok: true });
 });
 
