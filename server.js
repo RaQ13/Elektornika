@@ -35,9 +35,18 @@ try { db.exec('ALTER TABLE components ADD COLUMN in_use INTEGER NOT NULL DEFAULT
 try { db.exec('ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE'); } catch {}
 // Migrate existing DB: add favorite flag if missing
 try { db.exec('ALTER TABLE components ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0'); } catch {}
+// Migrate existing DB: add carton (box) label if missing
+try { db.exec('ALTER TABLE components ADD COLUMN carton TEXT'); } catch {}
 
 // Key/value metadata — used to mark one-time actions like initial seeding
 db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);`);
+
+// One-time: assign every currently-favorite component to carton "botland"
+if (!db.prepare("SELECT value FROM meta WHERE key='carton_botland'").get()) {
+  const r = db.prepare("UPDATE components SET carton='botland' WHERE favorite=1 AND (carton IS NULL OR carton='')").run();
+  db.prepare("INSERT INTO meta(key,value) VALUES('carton_botland','1')").run();
+  if (r.changes) console.log(`Przypisano ${r.changes} ulubionych do kartonu „botland".`);
+}
 
 // Seed default categories ONLY on the first-ever launch of this database.
 // After that, whatever the user has (including deletions) is preserved across restarts.
@@ -188,6 +197,8 @@ app.get('/api/components', (req, res) => {
   }
   if (q)                    { sql += ' AND (comp.name LIKE ? OR comp.notes LIKE ?)'; params.push(`%${q}%`, `%${q}%`); }
   if (req.query.fav === '1') { sql += ' AND comp.favorite = 1'; }
+  if (req.query.carton === '__none__')      { sql += " AND (comp.carton IS NULL OR comp.carton='')"; }
+  else if (req.query.carton)                { sql += ' AND comp.carton = ?'; params.push(req.query.carton); }
   switch (req.query.status) {
     case 'in_stock':  sql += ' AND comp.qty > 0'; break;
     case 'in_use':    sql += ' AND comp.in_use > 0'; break;
@@ -209,14 +220,14 @@ app.get('/api/components/:id', (req, res) => {
 });
 
 app.post('/api/components', upload.single('image'), (req, res) => {
-  const { name, qty, in_use, category_id, notes } = req.body;
+  const { name, qty, in_use, category_id, notes, carton } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Nazwa wymagana' });
   const image = req.file ? `/uploads/${req.file.filename}` : null;
   const safeQty    = Number(qty)    || 0;
   const safeInUse  = Math.min(Number(in_use) || 0, safeQty);
   const r = db.prepare(
-    'INSERT INTO components(name,qty,in_use,category_id,notes,image) VALUES(?,?,?,?,?,?)'
-  ).run(name.trim(), safeQty, safeInUse, category_id||null, notes?.trim()||null, image);
+    'INSERT INTO components(name,qty,in_use,category_id,notes,image,carton) VALUES(?,?,?,?,?,?,?)'
+  ).run(name.trim(), safeQty, safeInUse, category_id||null, notes?.trim()||null, image, carton?.trim()||null);
   res.status(201).json({ id: Number(r.lastInsertRowid) });
 });
 
@@ -224,7 +235,7 @@ app.put('/api/components/:id', upload.single('image'), (req, res) => {
   const existing = db.prepare('SELECT * FROM components WHERE id=?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
 
-  const { name, qty, in_use, category_id, notes, remove_image } = req.body;
+  const { name, qty, in_use, category_id, notes, remove_image, carton } = req.body;
   let image = existing.image;
 
   if (remove_image === '1') { removeFile(image); image = null; }
@@ -234,9 +245,10 @@ app.put('/api/components/:id', upload.single('image'), (req, res) => {
   const safeInUse = in_use !== undefined
     ? Math.min(Math.max(0, Number(in_use)), safeQty)
     : Math.min(existing.in_use, safeQty);
+  const safeCarton = carton !== undefined ? (carton.trim() || null) : existing.carton;
 
   db.prepare(
-    'UPDATE components SET name=?,qty=?,in_use=?,category_id=?,notes=?,image=? WHERE id=?'
+    'UPDATE components SET name=?,qty=?,in_use=?,category_id=?,notes=?,image=?,carton=? WHERE id=?'
   ).run(
     (name||'').trim() || existing.name,
     safeQty,
@@ -244,6 +256,7 @@ app.put('/api/components/:id', upload.single('image'), (req, res) => {
     category_id || null,
     (notes||'').trim() || null,
     image,
+    safeCarton,
     req.params.id
   );
   res.json({ ok: true });
@@ -284,6 +297,16 @@ app.delete('/api/components/:id', (req, res) => {
   removeFile(row.image);
   db.prepare('DELETE FROM components WHERE id=?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// Distinct carton labels with counts (for the filter dropdown)
+app.get('/api/cartons', (_req, res) => {
+  res.json(db.prepare(`
+    SELECT carton, COUNT(*) AS count
+    FROM components
+    WHERE carton IS NOT NULL AND carton <> ''
+    GROUP BY carton ORDER BY carton COLLATE NOCASE
+  `).all());
 });
 
 // Stats — global, or scoped to a category (+ all its descendants) via ?cat=
