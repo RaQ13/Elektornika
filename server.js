@@ -27,6 +27,22 @@ db.exec(`
     image       TEXT,
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
   );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT,
+    image       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS project_components (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id   INTEGER NOT NULL REFERENCES projects(id)   ON DELETE CASCADE,
+    component_id INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    qty          INTEGER NOT NULL DEFAULT 1 CHECK(qty >= 1),
+    UNIQUE(project_id, component_id)
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -247,7 +263,14 @@ app.get('/api/components/:id', (req, res) => {
     FROM components comp LEFT JOIN categories cat ON cat.id=comp.category_id
     WHERE comp.id=?
   `).get(req.params.id);
-  row ? res.json(row) : res.status(404).json({ error: 'Nie znaleziono' });
+  if (!row) return res.status(404).json({ error: 'Nie znaleziono' });
+  // projects that use this component (for cross-linking)
+  row.projects = db.prepare(`
+    SELECT p.id, p.name, pc.qty
+    FROM project_components pc JOIN projects p ON p.id = pc.project_id
+    WHERE pc.component_id = ? ORDER BY p.name COLLATE NOCASE
+  `).all(req.params.id);
+  res.json(row);
 });
 
 app.post('/api/components', upload.single('image'), (req, res) => {
@@ -338,6 +361,80 @@ app.get('/api/cartons', (_req, res) => {
     WHERE carton IS NOT NULL AND carton <> ''
     GROUP BY carton ORDER BY carton COLLATE NOCASE
   `).all());
+});
+
+// ── PROJECTS ─────────────────────────────────────────────────────────────────
+app.get('/api/projects', (_req, res) => {
+  res.json(db.prepare(`
+    SELECT p.*, COUNT(pc.id) AS comp_count
+    FROM projects p LEFT JOIN project_components pc ON pc.project_id = p.id
+    GROUP BY p.id ORDER BY p.created_at DESC
+  `).all());
+});
+
+app.get('/api/projects/:id', (req, res) => {
+  const p = db.prepare('SELECT * FROM projects WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Nie znaleziono' });
+  p.components = db.prepare(`
+    SELECT pc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.image, cat.name AS cat_name
+    FROM project_components pc
+    JOIN components c ON c.id = pc.component_id
+    LEFT JOIN categories cat ON cat.id = c.category_id
+    WHERE pc.project_id = ? ORDER BY c.name COLLATE NOCASE
+  `).all(req.params.id);
+  res.json(p);
+});
+
+app.post('/api/projects', upload.single('image'), (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Nazwa wymagana' });
+  const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const r = db.prepare('INSERT INTO projects(name,description,image) VALUES(?,?,?)')
+    .run(name, req.body.description?.trim() || null, image);
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/projects/:id', upload.single('image'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM projects WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
+  let image = existing.image;
+  if (req.body.remove_image === '1') { removeFile(image); image = null; }
+  if (req.file) { removeFile(image); image = `/uploads/${req.file.filename}`; }
+  db.prepare('UPDATE projects SET name=?,description=?,image=? WHERE id=?').run(
+    (req.body.name || '').trim() || existing.name,
+    (req.body.description || '').trim() || null,
+    image,
+    req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/projects/:id', (req, res) => {
+  const p = db.prepare('SELECT image FROM projects WHERE id=?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Nie znaleziono' });
+  removeFile(p.image);
+  db.prepare('DELETE FROM projects WHERE id=?').run(req.params.id); // cascades project_components
+  res.json({ ok: true });
+});
+
+// Add / update a component in a project's BOM (qty). Does NOT touch component.in_use.
+app.post('/api/projects/:id/components', (req, res) => {
+  const pid = Number(req.params.id);
+  const cid = Number(req.body.component_id);
+  const qty = Math.max(1, Number(req.body.qty) || 1);
+  if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(pid))   return res.status(404).json({ error: 'Projekt nie istnieje' });
+  if (!db.prepare('SELECT 1 FROM components WHERE id=?').get(cid)) return res.status(400).json({ error: 'Komponent nie istnieje' });
+  db.prepare(`
+    INSERT INTO project_components(project_id,component_id,qty) VALUES(?,?,?)
+    ON CONFLICT(project_id,component_id) DO UPDATE SET qty=excluded.qty
+  `).run(pid, cid, qty);
+  res.json({ ok: true });
+});
+
+app.delete('/api/projects/:id/components/:cid', (req, res) => {
+  db.prepare('DELETE FROM project_components WHERE project_id=? AND component_id=?')
+    .run(req.params.id, req.params.cid);
+  res.json({ ok: true });
 });
 
 // Stats — global, or scoped to a category (+ all its descendants) via ?cat=
