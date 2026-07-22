@@ -162,6 +162,11 @@ a{color:inherit}
 .cat-row:hover .cat-del{visibility:visible}
 .cat-del:hover{color:var(--red);background:var(--red-lo)}
 
+/* drag & drop re-nesting */
+.cat-row[draggable=true]{cursor:grab}
+.cat-row.dragging{opacity:.45}
+.cat-row.drop-target{background:var(--accent-lo);box-shadow:inset 0 0 0 1px var(--accent)}
+
 /* ─── MAIN AREA ──────────────────────────────────────────── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
@@ -756,7 +761,8 @@ function countDescendants(id){
 
 function renderCatList(){
   const all_count = cats.reduce((s,c)=>s+c.count,0);
-  let html = `<div class="cat-row ${activeCat==='all'?'active':''}" style="padding-left:14px" onclick="selectCat('all')">
+  let html = `<div class="cat-row ${activeCat==='all'?'active':''}" style="padding-left:14px" onclick="selectCat('all')"
+    ondragover="catDragOver(event,null)" ondragleave="catDragLeave(event)" ondrop="catDrop(event,null)">
     <span class="cat-caret" style="visibility:hidden">▸</span>
     <span class="cat-name">Wszystkie</span>
     <span class="cat-count">${all_count}</span>
@@ -777,7 +783,10 @@ function catRowHtml(c, depth){
   const addBtn  = (depth < MAX_DEPTH-1)
     ? `<button class="cat-add" title="Dodaj podkategorię" onclick="UI.openSubAdd(event,${c.id})">+</button>`
     : '';
-  let html = `<div class="cat-row ${depth>0?'cat-sub':''} ${activeCat==c.id?'active':''}" style="padding-left:${pad}px" onclick="selectCat(${c.id})">
+  let html = `<div class="cat-row ${depth>0?'cat-sub':''} ${activeCat==c.id?'active':''}" style="padding-left:${pad}px" onclick="selectCat(${c.id})"
+    draggable="true"
+    ondragstart="catDragStart(event,${c.id})" ondragend="catDragEnd(event)"
+    ondragover="catDragOver(event,${c.id})" ondragleave="catDragLeave(event)" ondrop="catDrop(event,${c.id})">
     ${caret}
     <span class="cat-name">${esc(c.name)}</span>
     ${addBtn}
@@ -792,6 +801,50 @@ function toggleCat(e, id){
   e.stopPropagation();
   expandedCats.has(id) ? expandedCats.delete(id) : expandedCats.add(id);
   renderCatList();
+}
+
+// ─── DRAG & DROP: re-nest categories ─────────────────────────────────────────
+let dragCatId = null;
+function catDragStart(e, id){
+  dragCatId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', String(id)); } catch {}
+  e.currentTarget.classList.add('dragging');
+}
+function catDragEnd(){
+  document.querySelectorAll('.cat-row.dragging,.cat-row.drop-target')
+    .forEach(el => el.classList.remove('dragging','drop-target'));
+  dragCatId = null;
+}
+function catDragOver(e, targetId){
+  if(dragCatId === null || dragCatId === targetId) return;   // nothing dragged, or onto itself
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drop-target');
+}
+function catDragLeave(e){ e.currentTarget.classList.remove('drop-target'); }
+
+async function catDrop(e, targetId){    // targetId === null → move to top level
+  e.preventDefault();
+  e.stopPropagation();
+  document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+  const id = dragCatId;
+  dragCatId = null;
+  if(id === null || id === targetId) return;
+
+  const r = await fetch(`/api/categories/${id}/parent`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ parent_id: targetId })
+  });
+  if(r.ok){
+    if(targetId != null) expandedCats.add(targetId);   // reveal where it landed
+    toast('Kategoria przeniesiona');
+    await loadCats();
+    loadComponents(); loadStats();
+  } else {
+    const err = await r.json().catch(()=>({}));
+    toast(err.error || 'Nie można przenieść kategorii','err');
+  }
 }
 
 function fillCatSelect(){

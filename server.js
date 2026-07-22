@@ -137,6 +137,12 @@ function descendantIds(id) {
   `).all(id).map(r => r.id);
 }
 
+// Height of a subtree rooted at id (a leaf category = 1)
+function subtreeHeight(id) {
+  const kids = db.prepare('SELECT id FROM categories WHERE parent_id=?').all(id);
+  return kids.length ? 1 + Math.max(...kids.map(k => subtreeHeight(k.id))) : 1;
+}
+
 // ── CATEGORIES ───────────────────────────────────────────────────────────────
 app.get('/api/categories', (_req, res) => {
   res.json(db.prepare(`
@@ -168,6 +174,31 @@ app.post('/api/categories', (req, res) => {
 
 app.delete('/api/categories/:id', (req, res) => {
   db.prepare('DELETE FROM categories WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Re-parent a category (drag & drop). parent_id = null → make it top-level.
+app.patch('/api/categories/:id/parent', (req, res) => {
+  const id = Number(req.params.id);
+  const cat = db.prepare('SELECT id FROM categories WHERE id=?').get(id);
+  if (!cat) return res.status(404).json({ error: 'Nie znaleziono' });
+
+  const parent_id = req.body.parent_id != null && req.body.parent_id !== ''
+    ? Number(req.body.parent_id) : null;
+
+  if (parent_id != null) {
+    const parent = db.prepare('SELECT id FROM categories WHERE id=?').get(parent_id);
+    if (!parent) return res.status(400).json({ error: 'Kategoria docelowa nie istnieje' });
+    // no cycles: target can't be the category itself nor one of its descendants
+    if (descendantIds(id).includes(parent_id))
+      return res.status(400).json({ error: 'Nie można zagnieździć kategorii w niej samej ani w jej podkategorii' });
+    // resulting depth of the deepest node in the moved subtree must fit the limit
+    const deepest = categoryDepth(parent_id) + subtreeHeight(id);
+    if (deepest > MAX_DEPTH)
+      return res.status(400).json({ error: `Przekroczony maksymalny poziom zagnieżdżenia (${MAX_DEPTH})` });
+  }
+
+  db.prepare('UPDATE categories SET parent_id=? WHERE id=?').run(parent_id, id);
   res.json({ ok: true });
 });
 
