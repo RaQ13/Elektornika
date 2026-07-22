@@ -61,6 +61,8 @@ try { db.exec('ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES ca
 try { db.exec('ALTER TABLE components ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0'); } catch {}
 // Migrate existing DB: add carton (box) label if missing
 try { db.exec('ALTER TABLE components ADD COLUMN carton TEXT'); } catch {}
+// Migrate existing DB: add free-text "used in" note if missing
+try { db.exec('ALTER TABLE components ADD COLUMN used_in TEXT'); } catch {}
 
 // Key/value metadata — used to mark one-time actions like initial seeding
 db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);`);
@@ -349,6 +351,18 @@ app.patch('/api/components/:id/favorite', (req, res) => {
   res.json({ favorite: fav });
 });
 
+// Free-text "used in" note (pure info, not shown on cards / not filterable)
+app.patch('/api/components/:id/used_in', (req, res) => {
+  const row = db.prepare('SELECT id FROM components WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Nie znaleziono' });
+  const used_in = (req.body.used_in || '').trim() || null;
+  // mutually exclusive with project assignment
+  if (used_in && db.prepare('SELECT 1 FROM project_components WHERE component_id=?').get(req.params.id))
+    return res.status(409).json({ error: 'Element jest przypisany do projektu — najpierw usuń przypisanie.' });
+  db.prepare('UPDATE components SET used_in=? WHERE id=?').run(used_in, req.params.id);
+  res.json({ used_in });
+});
+
 // Quick in_use bump (+/-)
 app.patch('/api/components/:id/in_use', (req, res) => {
   const { delta } = req.body;
@@ -436,8 +450,11 @@ app.post('/api/projects/:id/components', (req, res) => {
   const pid = Number(req.params.id);
   const cid = Number(req.body.component_id);
   const qty = Math.max(1, Number(req.body.qty) || 1);
-  if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(pid))   return res.status(404).json({ error: 'Projekt nie istnieje' });
-  if (!db.prepare('SELECT 1 FROM components WHERE id=?').get(cid)) return res.status(400).json({ error: 'Komponent nie istnieje' });
+  if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(pid)) return res.status(404).json({ error: 'Projekt nie istnieje' });
+  const comp = db.prepare('SELECT used_in FROM components WHERE id=?').get(cid);
+  if (!comp) return res.status(400).json({ error: 'Komponent nie istnieje' });
+  // mutually exclusive with the free-text "used in" note
+  if (comp.used_in) return res.status(409).json({ error: 'Element ma notatkę użycia — najpierw ją usuń.' });
   db.prepare(`
     INSERT INTO project_components(project_id,component_id,qty) VALUES(?,?,?)
     ON CONFLICT(project_id,component_id) DO UPDATE SET qty=excluded.qty
