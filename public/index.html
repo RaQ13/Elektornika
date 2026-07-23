@@ -285,6 +285,17 @@ select.ctrl:focus{border-color:var(--accent)}
   display:flex;flex-direction:column;
 }
 .ccard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.ccard.selected,.crow.selected{border-color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent),0 0 0 1px var(--accent);background:var(--accent-lo)}
+
+/* multi-select action bar */
+.select-bar{
+  position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:120;
+  display:flex;align-items:center;gap:10px;
+  background:var(--surface);border:1px solid var(--accent);border-radius:10px;
+  padding:8px 12px;box-shadow:0 8px 30px rgba(0,0,0,.5);
+}
+.select-bar .sel-count{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent)}
+.select-bar .sel-hint{font-size:11px;color:var(--muted)}
 
 /* favorite star */
 .fav-btn{
@@ -928,6 +939,15 @@ select.ctrl:focus{border-color:var(--accent)}
 </div>
 </div>
 
+<!-- MULTI-SELECT ACTION BAR -->
+<div id="selectBar" class="select-bar" style="display:none">
+  <span id="selCount" class="sel-count">Zaznaczono 0</span>
+  <span class="sel-hint">Ctrl+klik zaznacza</span>
+  <select class="ctrl" id="selSetSel"><option value="">— wybierz zestaw —</option></select>
+  <button class="btn btn-primary btn-sm" onclick="addSelectedToSet()">Dodaj do zestawu</button>
+  <button class="btn btn-ghost btn-sm" onclick="clearSelection()">Wyczyść</button>
+</div>
+
 <datalist id="cartonList"></datalist>
 <div id="toasts"></div>
 
@@ -941,6 +961,7 @@ let activeCat   = 'all';
 let currentView = 'grid';
 let editId      = null;
 let favOnly     = false;    // favorites-only filter
+let selectedIds = new Set();// Ctrl+click multi-select (components)
 let removeImgFlag = false;
 let pendingImage  = null;   // compressed image File ready to upload
 let _debTimer   = null;
@@ -1376,7 +1397,7 @@ function cardHtml(c){
   const img = c.image
     ? `<img class="ccard-img" src="${c.image}" alt="${esc(c.name)}" loading="lazy">`
     : `<div class="ccard-ph">${catEmoji(c.cat_name)}</div>`;
-  return `<div class="ccard" onclick="openDetail(${c.id})">
+  return `<div class="ccard${selectedIds.has(c.id)?' selected':''}" onclick="cardClick(event,${c.id})">
     ${favStar(c,false)}
     ${img}
     <div class="ccard-body">
@@ -1409,7 +1430,7 @@ function rowHtml(c){
   const img = c.image
     ? `<img class="crow-thumb" src="${c.image}" alt="${esc(c.name)}" loading="lazy">`
     : `<div class="crow-ph">${catEmoji(c.cat_name)}</div>`;
-  return `<div class="crow" onclick="openDetail(${c.id})">
+  return `<div class="crow${selectedIds.has(c.id)?' selected':''}" onclick="cardClick(event,${c.id})">
     ${favStar(c,true)}
     ${img}
     <div class="crow-name">${esc(c.name)}</div>
@@ -1463,6 +1484,52 @@ async function bump(id, field, delta, btn){
     }
     loadStats();
   }
+}
+
+// ─── MULTI-SELECT (Ctrl+click) ───────────────────────────────────────────────
+function cardClick(e, id){
+  if(e.ctrlKey || e.metaKey){        // Ctrl/⌘ + click → toggle selection
+    e.preventDefault();
+    toggleSelect(id, e.currentTarget);
+  } else {
+    openDetail(id);
+  }
+}
+function toggleSelect(id, el){
+  if(selectedIds.has(id)){ selectedIds.delete(id); el && el.classList.remove('selected'); }
+  else                   { selectedIds.add(id);    el && el.classList.add('selected'); }
+  renderSelectionBar();
+}
+function clearSelection(){
+  selectedIds.clear();
+  document.querySelectorAll('.ccard.selected,.crow.selected').forEach(e=>e.classList.remove('selected'));
+  renderSelectionBar();
+}
+async function renderSelectionBar(){
+  const bar = $('selectBar');
+  const n = selectedIds.size;
+  if(!n){ bar.style.display='none'; return; }
+  $('selCount').textContent = `Zaznaczono ${n}`;
+  const sets = await fetch('/api/sets').then(r=>r.json());
+  $('selSetSel').innerHTML = '<option value="">— wybierz zestaw —</option>' +
+    sets.map(s=>`<option value="${s.id}">🧰 ${esc(s.name)}</option>`).join('');
+  bar.style.display='flex';
+}
+async function addSelectedToSet(){
+  const sid = $('selSetSel').value;
+  if(!sid) return toast('Wybierz zestaw','err');
+  const ids = [...selectedIds];
+  let added=0, skipped=0;
+  for(const cid of ids){
+    const r = await fetch(`/api/sets/${sid}/components`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({component_id:cid, qty:1})
+    });
+    r.ok ? added++ : skipped++;
+  }
+  toast(`Dodano ${added} do zestawu${skipped?` · pominięto ${skipped} (niedostępne/błąd)`:''}`, skipped&&!added?'err':'ok');
+  clearSelection();
+  loadSets(); loadComponents();
 }
 
 // ─── DETAIL ─────────────────────────────────────────────────────────────────
@@ -1785,6 +1852,7 @@ function zoneDrop(e){
 let activeView = 'magazyn';
 function switchView(v){
   activeView = v;
+  clearSelection();
   const views = { magazyn:'viewMagazyn', projekty:'viewProjekty', zestawy:'viewZestawy', narzedzia:'viewNarzedzia' };
   const tabs  = { magazyn:'tabMagazyn',  projekty:'tabProjekty',  zestawy:'tabZestawy',  narzedzia:'tabNarzedzia' };
   for(const k in views){
