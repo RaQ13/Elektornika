@@ -1057,7 +1057,7 @@ async function loadCats(){
   fillCatSelect();
 }
 
-const MAX_DEPTH = 3;                             // 1=główna, 2=podkat., 3=pod-podkat.
+const MAX_DEPTH = 4;                             // 1=główna, 2=podkat., 3=pod-podkat., 4=pod-pod-podkat.
 const byName = (a,b) => a.name.localeCompare(b.name,'pl');
 const mainCats  = () => cats.filter(c=>!c.parent_id).sort(byName);
 const subsOf    = id => cats.filter(c=>c.parent_id===id).sort(byName);

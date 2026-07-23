@@ -153,8 +153,8 @@ function removeFile(imgPath) {
   try { if (fs.existsSync(full)) fs.unlinkSync(full); } catch {}
 }
 
-// Max category nesting: 1 = main, 2 = subcategory, 3 = sub-subcategory
-const MAX_DEPTH = 3;
+// Max category nesting: 1 = main, 2 = sub, 3 = sub-sub, 4 = sub-sub-sub
+const MAX_DEPTH = 4;
 // Depth of a category counted from the top (top-level = 1)
 function categoryDepth(id) {
   let depth = 0, cur = id;
