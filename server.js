@@ -51,6 +51,22 @@ db.exec(`
     image       TEXT,
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
   );
+
+  CREATE TABLE IF NOT EXISTS sets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT,
+    image       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS set_components (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_id       INTEGER NOT NULL REFERENCES sets(id)       ON DELETE CASCADE,
+    component_id INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    qty          INTEGER NOT NULL DEFAULT 1 CHECK(qty >= 1),
+    UNIQUE(set_id, component_id)
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -243,7 +259,10 @@ app.get('/api/components', (req, res) => {
     SELECT comp.*, cat.name AS cat_name,
       (SELECT GROUP_CONCAT(p.name, ', ')
          FROM project_components pc JOIN projects p ON p.id = pc.project_id
-         WHERE pc.component_id = comp.id) AS project_names
+         WHERE pc.component_id = comp.id) AS project_names,
+      (SELECT GROUP_CONCAT(s.name, ', ')
+         FROM set_components sc JOIN sets s ON s.id = sc.set_id
+         WHERE sc.component_id = comp.id) AS set_names
     FROM components comp
     LEFT JOIN categories cat ON cat.id = comp.category_id
     WHERE 1=1
@@ -262,6 +281,9 @@ app.get('/api/components', (req, res) => {
   if (req.query.project === '__none__')     { sql += ' AND comp.id NOT IN (SELECT component_id FROM project_components)'; }
   else if (req.query.project === '__any__') { sql += ' AND comp.id IN (SELECT component_id FROM project_components)'; }
   else if (req.query.project)               { sql += ' AND comp.id IN (SELECT component_id FROM project_components WHERE project_id=?)'; params.push(req.query.project); }
+  if (req.query.set === '__none__')         { sql += ' AND comp.id NOT IN (SELECT component_id FROM set_components)'; }
+  else if (req.query.set === '__any__')     { sql += ' AND comp.id IN (SELECT component_id FROM set_components)'; }
+  else if (req.query.set)                   { sql += ' AND comp.id IN (SELECT component_id FROM set_components WHERE set_id=?)'; params.push(req.query.set); }
   switch (req.query.status) {
     case 'in_stock':  sql += ' AND comp.qty > 0'; break;
     case 'in_use':    sql += ' AND comp.in_use > 0'; break;
@@ -285,6 +307,12 @@ app.get('/api/components/:id', (req, res) => {
     SELECT p.id, p.name, pc.qty
     FROM project_components pc JOIN projects p ON p.id = pc.project_id
     WHERE pc.component_id = ? ORDER BY p.name COLLATE NOCASE
+  `).all(req.params.id);
+  // sets that contain this component
+  row.sets = db.prepare(`
+    SELECT s.id, s.name, sc.qty
+    FROM set_components sc JOIN sets s ON s.id = sc.set_id
+    WHERE sc.component_id = ? ORDER BY s.name COLLATE NOCASE
   `).all(req.params.id);
   res.json(row);
 });
@@ -464,6 +492,86 @@ app.post('/api/projects/:id/components', (req, res) => {
 
 app.delete('/api/projects/:id/components/:cid', (req, res) => {
   db.prepare('DELETE FROM project_components WHERE project_id=? AND component_id=?')
+    .run(req.params.id, req.params.cid);
+  res.json({ ok: true });
+});
+
+// ── SETS (Zestawy) ───────────────────────────────────────────────────────────
+app.get('/api/sets', (_req, res) => {
+  res.json(db.prepare(`
+    SELECT s.*, COUNT(sc.id) AS comp_count
+    FROM sets s LEFT JOIN set_components sc ON sc.set_id = s.id
+    GROUP BY s.id ORDER BY s.created_at DESC
+  `).all());
+});
+
+app.get('/api/sets/:id', (req, res) => {
+  const s = db.prepare('SELECT * FROM sets WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Nie znaleziono' });
+  s.components = db.prepare(`
+    SELECT sc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.image, cat.name AS cat_name
+    FROM set_components sc
+    JOIN components c ON c.id = sc.component_id
+    LEFT JOIN categories cat ON cat.id = c.category_id
+    WHERE sc.set_id = ? ORDER BY c.name COLLATE NOCASE
+  `).all(req.params.id);
+  res.json(s);
+});
+
+app.post('/api/sets', upload.single('image'), (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Nazwa wymagana' });
+  const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const r = db.prepare('INSERT INTO sets(name,description,image) VALUES(?,?,?)')
+    .run(name, req.body.description?.trim() || null, image);
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/sets/:id', upload.single('image'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM sets WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
+  let image = existing.image;
+  if (req.body.remove_image === '1') { removeFile(image); image = null; }
+  if (req.file) { removeFile(image); image = `/uploads/${req.file.filename}`; }
+  db.prepare('UPDATE sets SET name=?,description=?,image=? WHERE id=?').run(
+    (req.body.name || '').trim() || existing.name,
+    (req.body.description || '').trim() || null,
+    image,
+    req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/sets/:id', (req, res) => {
+  const s = db.prepare('SELECT image FROM sets WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Nie znaleziono' });
+  removeFile(s.image);
+  db.prepare('DELETE FROM sets WHERE id=?').run(req.params.id); // cascades set_components
+  res.json({ ok: true });
+});
+
+// Add / update a component in a set's list (qty). Independent of in_use / projects / note.
+app.post('/api/sets/:id/components', (req, res) => {
+  const sid = Number(req.params.id);
+  const cid = Number(req.body.component_id);
+  const qty = Math.max(1, Number(req.body.qty) || 1);
+  if (!db.prepare('SELECT 1 FROM sets WHERE id=?').get(sid)) return res.status(404).json({ error: 'Zestaw nie istnieje' });
+  const comp = db.prepare('SELECT qty, in_use FROM components WHERE id=?').get(cid);
+  if (!comp) return res.status(400).json({ error: 'Komponent nie istnieje' });
+  // can add anything to a set — unless the item is unavailable (0 available).
+  // (edits to an already-added component are always allowed)
+  const already = db.prepare('SELECT 1 FROM set_components WHERE set_id=? AND component_id=?').get(sid, cid);
+  if (!already && (comp.qty - comp.in_use) <= 0)
+    return res.status(409).json({ error: 'Element niedostępny (0 dostępnych) — nie można dodać do zestawu.' });
+  db.prepare(`
+    INSERT INTO set_components(set_id,component_id,qty) VALUES(?,?,?)
+    ON CONFLICT(set_id,component_id) DO UPDATE SET qty=excluded.qty
+  `).run(sid, cid, qty);
+  res.json({ ok: true });
+});
+
+app.delete('/api/sets/:id/components/:cid', (req, res) => {
+  db.prepare('DELETE FROM set_components WHERE set_id=? AND component_id=?')
     .run(req.params.id, req.params.cid);
   res.json({ ok: true });
 });
