@@ -67,6 +67,21 @@ db.exec(`
     qty          INTEGER NOT NULL DEFAULT 1 CHECK(qty >= 1),
     UNIQUE(set_id, component_id)
   );
+
+  CREATE TABLE IF NOT EXISTS tool_components (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_id      INTEGER NOT NULL REFERENCES tools(id)      ON DELETE CASCADE,
+    component_id INTEGER NOT NULL REFERENCES components(id) ON DELETE CASCADE,
+    qty          INTEGER NOT NULL DEFAULT 1 CHECK(qty >= 1),
+    UNIQUE(tool_id, component_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS tool_sets (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+    set_id  INTEGER NOT NULL REFERENCES sets(id)  ON DELETE CASCADE,
+    UNIQUE(tool_id, set_id)
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -144,7 +159,13 @@ const upload = multer({
 // ── APP ──────────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static('public', {
+  // Always revalidate the app shell so code changes are picked up on reload
+  // (uploaded images keep normal caching — they have unique filenames).
+  setHeaders: (res, p) => {
+    if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 // helper – remove uploaded file safely
 function removeFile(imgPath) {
@@ -262,7 +283,14 @@ app.get('/api/components', (req, res) => {
          WHERE pc.component_id = comp.id) AS project_names,
       (SELECT GROUP_CONCAT(s.name, ', ')
          FROM set_components sc JOIN sets s ON s.id = sc.set_id
-         WHERE sc.component_id = comp.id) AS set_names
+         WHERE sc.component_id = comp.id) AS set_names,
+      (SELECT GROUP_CONCAT(name, ', ') FROM (
+         SELECT DISTINCT t.name FROM (
+           SELECT tc.tool_id AS tid FROM tool_components tc WHERE tc.component_id = comp.id
+           UNION
+           SELECT ts.tool_id AS tid FROM set_components sc JOIN tool_sets ts ON ts.set_id = sc.set_id WHERE sc.component_id = comp.id
+         ) x JOIN tools t ON t.id = x.tid ORDER BY t.name COLLATE NOCASE
+       )) AS tool_names
     FROM components comp
     LEFT JOIN categories cat ON cat.id = comp.category_id
     WHERE 1=1
@@ -284,6 +312,18 @@ app.get('/api/components', (req, res) => {
   if (req.query.set === '__none__')         { sql += ' AND comp.id NOT IN (SELECT component_id FROM set_components)'; }
   else if (req.query.set === '__any__')     { sql += ' AND comp.id IN (SELECT component_id FROM set_components)'; }
   else if (req.query.set)                   { sql += ' AND comp.id IN (SELECT component_id FROM set_components WHERE set_id=?)'; params.push(req.query.set); }
+  // a component belongs to a tool directly OR via a set attached to that tool
+  const TOOL_ANY = '(SELECT component_id FROM tool_components UNION SELECT sc.component_id FROM set_components sc JOIN tool_sets ts ON ts.set_id=sc.set_id)';
+  if (req.query.tool === '__none__')        { sql += ` AND comp.id NOT IN ${TOOL_ANY}`; }
+  else if (req.query.tool === '__any__')    { sql += ` AND comp.id IN ${TOOL_ANY}`; }
+  else if (req.query.tool)                  {
+    sql += ` AND comp.id IN (
+      SELECT component_id FROM tool_components WHERE tool_id=?
+      UNION
+      SELECT sc.component_id FROM set_components sc JOIN tool_sets ts ON ts.set_id=sc.set_id WHERE ts.tool_id=?
+    )`;
+    params.push(req.query.tool, req.query.tool);
+  }
   switch (req.query.status) {
     case 'in_stock':  sql += ' AND comp.qty > 0'; break;
     case 'in_use':    sql += ' AND comp.in_use > 0'; break;
@@ -314,6 +354,29 @@ app.get('/api/components/:id', (req, res) => {
     FROM set_components sc JOIN sets s ON s.id = sc.set_id
     WHERE sc.component_id = ? ORDER BY s.name COLLATE NOCASE
   `).all(req.params.id);
+  // tools this component is attached to — directly, and indirectly via attached sets
+  const directTools = db.prepare(`
+    SELECT t.id, t.name, tc.qty FROM tool_components tc JOIN tools t ON t.id = tc.tool_id
+    WHERE tc.component_id = ? ORDER BY t.name COLLATE NOCASE
+  `).all(req.params.id);
+  const directIds = new Set(directTools.map(t => t.id));
+  const viaRows = db.prepare(`
+    SELECT t.id, t.name, s.name AS via
+    FROM set_components sc
+    JOIN tool_sets ts ON ts.set_id = sc.set_id
+    JOIN tools t ON t.id = ts.tool_id
+    JOIN sets  s ON s.id = ts.set_id
+    WHERE sc.component_id = ? ORDER BY t.name COLLATE NOCASE
+  `).all(req.params.id);
+  const viaMap = {};
+  for (const r of viaRows) {
+    if (directIds.has(r.id)) continue;              // already assigned directly
+    (viaMap[r.id] ||= { id: r.id, name: r.name, vias: [] }).vias.push(r.via);
+  }
+  row.tools = [
+    ...directTools.map(t => ({ id: t.id, name: t.name, qty: t.qty, via: null })),
+    ...Object.values(viaMap).map(t => ({ id: t.id, name: t.name, via: [...new Set(t.vias)].join(', ') })),
+  ];
   res.json(row);
 });
 
@@ -515,6 +578,11 @@ app.get('/api/sets/:id', (req, res) => {
     LEFT JOIN categories cat ON cat.id = c.category_id
     WHERE sc.set_id = ? ORDER BY c.name COLLATE NOCASE
   `).all(req.params.id);
+  // tools this set is attached to (backlink)
+  s.tools = db.prepare(`
+    SELECT t.id, t.name FROM tool_sets ts JOIN tools t ON t.id = ts.tool_id
+    WHERE ts.set_id = ? ORDER BY t.name COLLATE NOCASE
+  `).all(req.params.id);
   res.json(s);
 });
 
@@ -583,7 +651,33 @@ app.get('/api/tools', (_req, res) => {
 
 app.get('/api/tools/:id', (req, res) => {
   const t = db.prepare('SELECT * FROM tools WHERE id=?').get(req.params.id);
-  t ? res.json(t) : res.status(404).json({ error: 'Nie znaleziono' });
+  if (!t) return res.status(404).json({ error: 'Nie znaleziono' });
+  t.components = db.prepare(`
+    SELECT tc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.image, cat.name AS cat_name
+    FROM tool_components tc
+    JOIN components c ON c.id = tc.component_id
+    LEFT JOIN categories cat ON cat.id = c.category_id
+    WHERE tc.tool_id = ? ORDER BY c.name COLLATE NOCASE
+  `).all(req.params.id);
+  t.sets = db.prepare(`
+    SELECT s.id, s.name, s.image, (SELECT COUNT(*) FROM set_components sc WHERE sc.set_id=s.id) AS comp_count
+    FROM tool_sets ts JOIN sets s ON s.id = ts.set_id
+    WHERE ts.tool_id = ? ORDER BY s.name COLLATE NOCASE
+  `).all(req.params.id);
+  // components pulled in via attached sets (excluding ones already directly attached)
+  t.set_derived = db.prepare(`
+    SELECT c.id, c.name, c.image, cat.name AS cat_name,
+           GROUP_CONCAT(DISTINCT s.name) AS via
+    FROM tool_sets ts
+    JOIN set_components sc ON sc.set_id = ts.set_id
+    JOIN sets s ON s.id = ts.set_id
+    JOIN components c ON c.id = sc.component_id
+    LEFT JOIN categories cat ON cat.id = c.category_id
+    WHERE ts.tool_id = ?
+      AND c.id NOT IN (SELECT component_id FROM tool_components WHERE tool_id = ?)
+    GROUP BY c.id ORDER BY c.name COLLATE NOCASE
+  `).all(req.params.id, req.params.id);
+  res.json(t);
 });
 
 app.post('/api/tools', upload.single('image'), (req, res) => {
@@ -614,7 +708,45 @@ app.delete('/api/tools/:id', (req, res) => {
   const t = db.prepare('SELECT image FROM tools WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Nie znaleziono' });
   removeFile(t.image);
-  db.prepare('DELETE FROM tools WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM tools WHERE id=?').run(req.params.id); // cascades tool_components / tool_sets
+  res.json({ ok: true });
+});
+
+// Attach / update a component on a tool (qty). Unavailable items can't be added (like sets).
+app.post('/api/tools/:id/components', (req, res) => {
+  const tid = Number(req.params.id);
+  const cid = Number(req.body.component_id);
+  const qty = Math.max(1, Number(req.body.qty) || 1);
+  if (!db.prepare('SELECT 1 FROM tools WHERE id=?').get(tid)) return res.status(404).json({ error: 'Narzędzie nie istnieje' });
+  const comp = db.prepare('SELECT qty, in_use FROM components WHERE id=?').get(cid);
+  if (!comp) return res.status(400).json({ error: 'Komponent nie istnieje' });
+  const already = db.prepare('SELECT 1 FROM tool_components WHERE tool_id=? AND component_id=?').get(tid, cid);
+  if (!already && (comp.qty - comp.in_use) <= 0)
+    return res.status(409).json({ error: 'Element niedostępny (0 dostępnych) — nie można dodać do narzędzia.' });
+  db.prepare(`
+    INSERT INTO tool_components(tool_id,component_id,qty) VALUES(?,?,?)
+    ON CONFLICT(tool_id,component_id) DO UPDATE SET qty=excluded.qty
+  `).run(tid, cid, qty);
+  res.json({ ok: true });
+});
+
+app.delete('/api/tools/:id/components/:cid', (req, res) => {
+  db.prepare('DELETE FROM tool_components WHERE tool_id=? AND component_id=?').run(req.params.id, req.params.cid);
+  res.json({ ok: true });
+});
+
+// Attach / detach a set on a tool
+app.post('/api/tools/:id/sets', (req, res) => {
+  const tid = Number(req.params.id);
+  const setId = Number(req.body.set_id);
+  if (!db.prepare('SELECT 1 FROM tools WHERE id=?').get(tid)) return res.status(404).json({ error: 'Narzędzie nie istnieje' });
+  if (!db.prepare('SELECT 1 FROM sets WHERE id=?').get(setId)) return res.status(400).json({ error: 'Zestaw nie istnieje' });
+  db.prepare('INSERT OR IGNORE INTO tool_sets(tool_id,set_id) VALUES(?,?)').run(tid, setId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/tools/:id/sets/:setId', (req, res) => {
+  db.prepare('DELETE FROM tool_sets WHERE tool_id=? AND set_id=?').run(req.params.id, req.params.setId);
   res.json({ ok: true });
 });
 
