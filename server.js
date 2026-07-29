@@ -82,6 +82,13 @@ db.exec(`
     set_id  INTEGER NOT NULL REFERENCES sets(id)  ON DELETE CASCADE,
     UNIQUE(tool_id, set_id)
   );
+
+  CREATE TABLE IF NOT EXISTS set_tools (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_id  INTEGER NOT NULL REFERENCES sets(id)  ON DELETE CASCADE,
+    tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+    UNIQUE(set_id, tool_id)
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -562,9 +569,10 @@ app.delete('/api/projects/:id/components/:cid', (req, res) => {
 // ── SETS (Zestawy) ───────────────────────────────────────────────────────────
 app.get('/api/sets', (_req, res) => {
   res.json(db.prepare(`
-    SELECT s.*, COUNT(sc.id) AS comp_count
-    FROM sets s LEFT JOIN set_components sc ON sc.set_id = s.id
-    GROUP BY s.id ORDER BY s.created_at DESC
+    SELECT s.*,
+      (SELECT COUNT(*) FROM set_components sc WHERE sc.set_id=s.id) AS comp_count,
+      (SELECT COUNT(*) FROM set_tools      st WHERE st.set_id=s.id) AS tool_count
+    FROM sets s ORDER BY s.created_at DESC
   `).all());
 });
 
@@ -578,8 +586,13 @@ app.get('/api/sets/:id', (req, res) => {
     LEFT JOIN categories cat ON cat.id = c.category_id
     WHERE sc.set_id = ? ORDER BY c.name COLLATE NOCASE
   `).all(req.params.id);
-  // tools this set is attached to (backlink)
+  // tools that are MEMBERS of this set (the set consists of these tools)
   s.tools = db.prepare(`
+    SELECT t.id, t.name, t.image FROM set_tools st JOIN tools t ON t.id = st.tool_id
+    WHERE st.set_id = ? ORDER BY t.name COLLATE NOCASE
+  `).all(req.params.id);
+  // tools this set is attached to (backlink — a tool that includes this set)
+  s.usedInTools = db.prepare(`
     SELECT t.id, t.name FROM tool_sets ts JOIN tools t ON t.id = ts.tool_id
     WHERE ts.set_id = ? ORDER BY t.name COLLATE NOCASE
   `).all(req.params.id);
@@ -644,6 +657,21 @@ app.delete('/api/sets/:id/components/:cid', (req, res) => {
   res.json({ ok: true });
 });
 
+// A set can also contain tools (e.g. „Alfa adapter + antena")
+app.post('/api/sets/:id/tools', (req, res) => {
+  const sid = Number(req.params.id);
+  const toolId = Number(req.body.tool_id);
+  if (!db.prepare('SELECT 1 FROM sets WHERE id=?').get(sid))   return res.status(404).json({ error: 'Zestaw nie istnieje' });
+  if (!db.prepare('SELECT 1 FROM tools WHERE id=?').get(toolId)) return res.status(400).json({ error: 'Narzędzie nie istnieje' });
+  db.prepare('INSERT OR IGNORE INTO set_tools(set_id,tool_id) VALUES(?,?)').run(sid, toolId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/sets/:id/tools/:toolId', (req, res) => {
+  db.prepare('DELETE FROM set_tools WHERE set_id=? AND tool_id=?').run(req.params.id, req.params.toolId);
+  res.json({ ok: true });
+});
+
 // ── TOOLS ────────────────────────────────────────────────────────────────────
 app.get('/api/tools', (_req, res) => {
   res.json(db.prepare('SELECT * FROM tools ORDER BY created_at DESC').all());
@@ -663,6 +691,11 @@ app.get('/api/tools/:id', (req, res) => {
     SELECT s.id, s.name, s.image, (SELECT COUNT(*) FROM set_components sc WHERE sc.set_id=s.id) AS comp_count
     FROM tool_sets ts JOIN sets s ON s.id = ts.set_id
     WHERE ts.tool_id = ? ORDER BY s.name COLLATE NOCASE
+  `).all(req.params.id);
+  // sets that this tool is a member of (backlink)
+  t.in_sets = db.prepare(`
+    SELECT s.id, s.name FROM set_tools st JOIN sets s ON s.id = st.set_id
+    WHERE st.tool_id = ? ORDER BY s.name COLLATE NOCASE
   `).all(req.params.id);
   // components pulled in via attached sets (excluding ones already directly attached)
   t.set_derived = db.prepare(`

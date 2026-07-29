@@ -2124,7 +2124,11 @@ async function loadSets(){
       <div class="pcard-body">
         <div class="pcard-name">${esc(s.name)}</div>
         ${s.description?`<div class="pcard-desc">${esc(s.description)}</div>`:''}
-        <div class="pcard-foot"><span class="pcard-badge">🔧 ${s.comp_count} ${s.comp_count===1?'element':'elem.'}</span></div>
+        <div class="pcard-foot">
+          ${s.comp_count?`<span class="pcard-badge">🔩 ${s.comp_count} elem.</span>`:''}
+          ${s.tool_count?`<span class="pcard-badge">🔧 ${s.tool_count} narz.</span>`:''}
+          ${(!s.comp_count && !s.tool_count)?`<span class="pcard-badge">pusty</span>`:''}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -2136,6 +2140,9 @@ async function openSet(id){
   const all = await fetch('/api/components?sort=name_az').then(r=>r.json());
   const opts = '<option value="">— wybierz komponent —</option>' +
     all.map(c=>`<option value="${c.id}">${esc(c.name)}${c.cat_name?` — ${esc(c.cat_name)}`:''}</option>`).join('');
+  const allTools = await fetch('/api/tools').then(r=>r.json());
+  const toolOpts = '<option value="">— wybierz narzędzie —</option>' +
+    allTools.map(t=>`<option value="${t.id}">🔧 ${esc(t.name)}</option>`).join('');
 
   $('setTitle').textContent = `// ${s.name}`;
   const comps = s.components.map(c=>{
@@ -2148,21 +2155,38 @@ async function openSet(id){
       <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use} dost.</span>
       <button class="qbtn" title="Usuń z zestawu" onclick="removeCompFromSet(${c.id})">−</button>
     </div>`;
-  }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak przypisanych elementów.</div>';
+  }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak komponentów.</div>';
+
+  const toolsList = (s.tools||[]).map(t=>{
+    const thumb = t.image ? `<img class="proj-comp-thumb" src="${t.image}" alt="">` : `<div class="proj-comp-ph">🔧</div>`;
+    return `<div class="proj-comp">
+      ${thumb}
+      <span class="proj-comp-name" onclick="goToTool(${t.id})" title="Przejdź do narzędzia">🔧 ${esc(t.name)}</span>
+      <button class="qbtn" title="Usuń z zestawu" onclick="removeToolFromSet(${t.id})">−</button>
+    </div>`;
+  }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak narzędzi.</div>';
 
   $('setBody').innerHTML = `
     ${s.image?`<img class="detail-img" src="${s.image}" alt="${esc(s.name)}">`:''}
     ${s.description?`<div class="proj-desc">${esc(s.description)}</div>`:''}
-    <div class="detail-field"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Użyte elementy</label></div>
+    <div class="detail-field"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Komponenty</label></div>
     <div style="margin:8px 0">${comps}</div>
     <div class="proj-add-row">
       <select class="fselect" id="setCompSel">${opts}</select>
       <input class="finput" id="setCompQty" type="number" min="1" value="1">
       <button class="btn btn-ghost btn-sm" onclick="addCompToSet()">Dodaj</button>
     </div>
-    ${(s.tools && s.tools.length) ? `<div class="detail-field" style="margin-top:14px">
+
+    <div class="detail-field" style="margin-top:14px"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Narzędzia</label></div>
+    <div style="margin:8px 0">${toolsList}</div>
+    <div class="proj-add-row">
+      <select class="fselect" id="setToolSel">${toolOpts}</select>
+      <button class="btn btn-ghost btn-sm" onclick="addToolToSet()">Dodaj</button>
+    </div>
+
+    ${(s.usedInTools && s.usedInTools.length) ? `<div class="detail-field" style="margin-top:14px">
       <label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Używany w narzędziach</label>
-      <div class="dval">${s.tools.map(t=>`<span class="link-chip"><span class="link-chip-go" onclick="goToTool(${t.id})">🔧 ${esc(t.name)}</span></span>`).join('')}</div>
+      <div class="dval">${s.usedInTools.map(t=>`<span class="link-chip"><span class="link-chip-go" onclick="goToTool(${t.id})">🔧 ${esc(t.name)}</span></span>`).join('')}</div>
     </div>` : ''}
     <div class="detail-actions" style="margin-top:16px">
       <button class="btn btn-ghost btn-sm" onclick="closeOverlay('setOverlay');UI.openSetEdit(${id})">✏ Edytuj</button>
@@ -2181,6 +2205,21 @@ async function addCompToSet(){
   });
   if(r.ok){ openSet(currentSetId); loadSets(); loadComponents(); }
   else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd','err'); }
+}
+
+async function addToolToSet(){
+  const tid = $('setToolSel').value;
+  if(!tid) return toast('Wybierz narzędzie','err');
+  const r = await fetch(`/api/sets/${currentSetId}/tools`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tool_id:Number(tid)})
+  });
+  if(r.ok){ openSet(currentSetId); loadSets(); }
+  else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd','err'); }
+}
+async function removeToolFromSet(tid){
+  const r = await fetch(`/api/sets/${currentSetId}/tools/${tid}`,{method:'DELETE'});
+  if(r.ok){ openSet(currentSetId); loadSets(); }
 }
 
 async function removeCompFromSet(cid){
@@ -2354,6 +2393,11 @@ async function openTool(id){
       <select class="fselect" id="toolSetSel">${setOpts}</select>
       <button class="btn btn-ghost btn-sm" onclick="addSetToTool()">Dodaj</button>
     </div>
+
+    ${(t.in_sets && t.in_sets.length) ? `<div class="detail-field" style="margin-top:14px">
+      <label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Wchodzi w skład zestawów</label>
+      <div class="dval">${t.in_sets.map(s=>`<span class="link-chip"><span class="link-chip-go" onclick="goToSet(${s.id})">🧰 ${esc(s.name)}</span></span>`).join('')}</div>
+    </div>` : ''}
 
     <div class="detail-field" style="margin-top:14px"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Dodano</label>
       <div class="dval" style="color:var(--muted);font-size:12px">${new Date(t.created_at).toLocaleString('pl-PL')}</div>
