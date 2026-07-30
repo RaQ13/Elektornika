@@ -89,6 +89,40 @@ db.exec(`
     tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
     UNIQUE(set_id, tool_id)
   );
+
+  CREATE TABLE IF NOT EXISTS set_sets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_set_id INTEGER NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+    child_set_id  INTEGER NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+    UNIQUE(parent_set_id, child_set_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS chargers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT,
+    image       TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS set_chargers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_id     INTEGER NOT NULL REFERENCES sets(id)     ON DELETE CASCADE,
+    charger_id INTEGER NOT NULL REFERENCES chargers(id) ON DELETE CASCADE,
+    UNIQUE(set_id, charger_id)
+  );
+  CREATE TABLE IF NOT EXISTS tool_chargers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_id    INTEGER NOT NULL REFERENCES tools(id)    ON DELETE CASCADE,
+    charger_id INTEGER NOT NULL REFERENCES chargers(id) ON DELETE CASCADE,
+    UNIQUE(tool_id, charger_id)
+  );
+  CREATE TABLE IF NOT EXISTS project_chargers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    charger_id INTEGER NOT NULL REFERENCES chargers(id) ON DELETE CASCADE,
+    UNIQUE(project_id, charger_id)
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -508,6 +542,10 @@ app.get('/api/projects/:id', (req, res) => {
     LEFT JOIN categories cat ON cat.id = c.category_id
     WHERE pc.project_id = ? ORDER BY c.name COLLATE NOCASE
   `).all(req.params.id);
+  p.chargers = db.prepare(`
+    SELECT ch.id, ch.name, ch.image FROM project_chargers pch JOIN chargers ch ON ch.id = pch.charger_id
+    WHERE pch.project_id = ? ORDER BY ch.name COLLATE NOCASE
+  `).all(req.params.id);
   res.json(p);
 });
 
@@ -571,7 +609,8 @@ app.get('/api/sets', (_req, res) => {
   res.json(db.prepare(`
     SELECT s.*,
       (SELECT COUNT(*) FROM set_components sc WHERE sc.set_id=s.id) AS comp_count,
-      (SELECT COUNT(*) FROM set_tools      st WHERE st.set_id=s.id) AS tool_count
+      (SELECT COUNT(*) FROM set_tools      st WHERE st.set_id=s.id) AS tool_count,
+      (SELECT COUNT(*) FROM set_sets       ss WHERE ss.parent_set_id=s.id) AS set_count
     FROM sets s ORDER BY s.created_at DESC
   `).all());
 });
@@ -595,6 +634,22 @@ app.get('/api/sets/:id', (req, res) => {
   s.usedInTools = db.prepare(`
     SELECT t.id, t.name FROM tool_sets ts JOIN tools t ON t.id = ts.tool_id
     WHERE ts.set_id = ? ORDER BY t.name COLLATE NOCASE
+  `).all(req.params.id);
+  s.chargers = db.prepare(`
+    SELECT ch.id, ch.name, ch.image FROM set_chargers sch JOIN chargers ch ON ch.id = sch.charger_id
+    WHERE sch.set_id = ? ORDER BY ch.name COLLATE NOCASE
+  `).all(req.params.id);
+  // sub-sets: sets that are members of this set
+  s.subsets = db.prepare(`
+    SELECT s2.id, s2.name, s2.image,
+      (SELECT COUNT(*) FROM set_components sc WHERE sc.set_id=s2.id) AS comp_count
+    FROM set_sets ss JOIN sets s2 ON s2.id = ss.child_set_id
+    WHERE ss.parent_set_id = ? ORDER BY s2.name COLLATE NOCASE
+  `).all(req.params.id);
+  // parent sets that contain this set (backlink)
+  s.inSets = db.prepare(`
+    SELECT s2.id, s2.name FROM set_sets ss JOIN sets s2 ON s2.id = ss.parent_set_id
+    WHERE ss.child_set_id = ? ORDER BY s2.name COLLATE NOCASE
   `).all(req.params.id);
   res.json(s);
 });
@@ -672,6 +727,31 @@ app.delete('/api/sets/:id/tools/:toolId', (req, res) => {
   res.json({ ok: true });
 });
 
+// A set can contain other sets (sub-sets). Guard against cycles.
+function setSubtree(id) {              // id + all its descendant sets (via set_sets)
+  return db.prepare(`
+    WITH RECURSIVE d(id) AS (
+      SELECT CAST(? AS INTEGER)
+      UNION
+      SELECT ss.child_set_id FROM set_sets ss JOIN d ON ss.parent_set_id = d.id
+    ) SELECT id FROM d
+  `).all(id).map(r => r.id);
+}
+app.post('/api/sets/:id/sets', (req, res) => {
+  const parent = Number(req.params.id);
+  const child  = Number(req.body.child_id);
+  if (!db.prepare('SELECT 1 FROM sets WHERE id=?').get(parent)) return res.status(404).json({ error: 'Zestaw nie istnieje' });
+  if (!db.prepare('SELECT 1 FROM sets WHERE id=?').get(child))  return res.status(400).json({ error: 'Zestaw nie istnieje' });
+  if (setSubtree(child).includes(parent))
+    return res.status(409).json({ error: 'Nie można — zestaw nie może zawierać samego siebie ani swojego nadzbioru (cykl).' });
+  db.prepare('INSERT OR IGNORE INTO set_sets(parent_set_id,child_set_id) VALUES(?,?)').run(parent, child);
+  res.json({ ok: true });
+});
+app.delete('/api/sets/:id/sets/:childId', (req, res) => {
+  db.prepare('DELETE FROM set_sets WHERE parent_set_id=? AND child_set_id=?').run(req.params.id, req.params.childId);
+  res.json({ ok: true });
+});
+
 // ── TOOLS ────────────────────────────────────────────────────────────────────
 app.get('/api/tools', (_req, res) => {
   res.json(db.prepare('SELECT * FROM tools ORDER BY created_at DESC').all());
@@ -696,6 +776,10 @@ app.get('/api/tools/:id', (req, res) => {
   t.in_sets = db.prepare(`
     SELECT s.id, s.name FROM set_tools st JOIN sets s ON s.id = st.set_id
     WHERE st.tool_id = ? ORDER BY s.name COLLATE NOCASE
+  `).all(req.params.id);
+  t.chargers = db.prepare(`
+    SELECT ch.id, ch.name, ch.image FROM tool_chargers tch JOIN chargers ch ON ch.id = tch.charger_id
+    WHERE tch.tool_id = ? ORDER BY ch.name COLLATE NOCASE
   `).all(req.params.id);
   // components pulled in via attached sets (excluding ones already directly attached)
   t.set_derived = db.prepare(`
@@ -782,6 +866,81 @@ app.delete('/api/tools/:id/sets/:setId', (req, res) => {
   db.prepare('DELETE FROM tool_sets WHERE tool_id=? AND set_id=?').run(req.params.id, req.params.setId);
   res.json({ ok: true });
 });
+
+// ── CHARGERS (Ładowarki) ──────────────────────────────────────────────────────
+app.get('/api/chargers', (_req, res) => {
+  res.json(db.prepare(`
+    SELECT ch.*,
+      ((SELECT COUNT(*) FROM set_chargers x WHERE x.charger_id=ch.id)
+      +(SELECT COUNT(*) FROM tool_chargers x WHERE x.charger_id=ch.id)
+      +(SELECT COUNT(*) FROM project_chargers x WHERE x.charger_id=ch.id)) AS link_count
+    FROM chargers ch ORDER BY ch.created_at DESC
+  `).all());
+});
+
+app.get('/api/chargers/:id', (req, res) => {
+  const ch = db.prepare('SELECT * FROM chargers WHERE id=?').get(req.params.id);
+  if (!ch) return res.status(404).json({ error: 'Nie znaleziono' });
+  ch.sets = db.prepare(`SELECT s.id, s.name FROM set_chargers x JOIN sets s ON s.id=x.set_id WHERE x.charger_id=? ORDER BY s.name COLLATE NOCASE`).all(req.params.id);
+  ch.tools = db.prepare(`SELECT t.id, t.name FROM tool_chargers x JOIN tools t ON t.id=x.tool_id WHERE x.charger_id=? ORDER BY t.name COLLATE NOCASE`).all(req.params.id);
+  ch.projects = db.prepare(`SELECT p.id, p.name FROM project_chargers x JOIN projects p ON p.id=x.project_id WHERE x.charger_id=? ORDER BY p.name COLLATE NOCASE`).all(req.params.id);
+  res.json(ch);
+});
+
+app.post('/api/chargers', upload.single('image'), (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Nazwa wymagana' });
+  const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const r = db.prepare('INSERT INTO chargers(name,description,image) VALUES(?,?,?)')
+    .run(name, req.body.description?.trim() || null, image);
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/chargers/:id', upload.single('image'), (req, res) => {
+  const existing = db.prepare('SELECT * FROM chargers WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
+  let image = existing.image;
+  if (req.body.remove_image === '1') { removeFile(image); image = null; }
+  if (req.file) { removeFile(image); image = `/uploads/${req.file.filename}`; }
+  db.prepare('UPDATE chargers SET name=?,description=?,image=? WHERE id=?').run(
+    (req.body.name || '').trim() || existing.name,
+    (req.body.description || '').trim() || null,
+    image, req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/chargers/:id', (req, res) => {
+  const ch = db.prepare('SELECT image FROM chargers WHERE id=?').get(req.params.id);
+  if (!ch) return res.status(404).json({ error: 'Nie znaleziono' });
+  removeFile(ch.image);
+  db.prepare('DELETE FROM chargers WHERE id=?').run(req.params.id); // cascades link tables
+  res.json({ ok: true });
+});
+
+// Attach / detach a charger to a set / tool / project (generic helper)
+function chargerLink(table, parentCol, parentTable) {
+  return {
+    add: (req, res) => {
+      const pid = Number(req.params.id);
+      const chId = Number(req.body.charger_id);
+      if (!db.prepare(`SELECT 1 FROM ${parentTable} WHERE id=?`).get(pid))  return res.status(404).json({ error: 'Nie znaleziono' });
+      if (!db.prepare('SELECT 1 FROM chargers WHERE id=?').get(chId))       return res.status(400).json({ error: 'Ładowarka nie istnieje' });
+      db.prepare(`INSERT OR IGNORE INTO ${table}(${parentCol},charger_id) VALUES(?,?)`).run(pid, chId);
+      res.json({ ok: true });
+    },
+    del: (req, res) => {
+      db.prepare(`DELETE FROM ${table} WHERE ${parentCol}=? AND charger_id=?`).run(req.params.id, req.params.chId);
+      res.json({ ok: true });
+    }
+  };
+}
+const setCh = chargerLink('set_chargers', 'set_id', 'sets');
+const toolCh = chargerLink('tool_chargers', 'tool_id', 'tools');
+const projCh = chargerLink('project_chargers', 'project_id', 'projects');
+app.post('/api/sets/:id/chargers', setCh.add);       app.delete('/api/sets/:id/chargers/:chId', setCh.del);
+app.post('/api/tools/:id/chargers', toolCh.add);     app.delete('/api/tools/:id/chargers/:chId', toolCh.del);
+app.post('/api/projects/:id/chargers', projCh.add);  app.delete('/api/projects/:id/chargers/:chId', projCh.del);
 
 // Stats — global, or scoped to a category (+ all its descendants) via ?cat=
 app.get('/api/stats', (req, res) => {

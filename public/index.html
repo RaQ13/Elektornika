@@ -551,6 +551,7 @@ select.ctrl:focus{border-color:var(--accent)}
     <button class="tab"        id="tabProjekty" onclick="switchView('projekty')">🧩 Projekty</button>
     <button class="tab"        id="tabZestawy" onclick="switchView('zestawy')">🧰 Zestawy</button>
     <button class="tab"        id="tabNarzedzia" onclick="switchView('narzedzia')">🔧 Narzędzia</button>
+    <button class="tab"        id="tabLadowarki" onclick="switchView('ladowarki')">🔋 Ładowarki</button>
   </nav>
   <div class="ml-auto">
     <button class="btn btn-primary" id="headerAddBtn" onclick="headerAdd()">+ Dodaj komponent</button>
@@ -668,6 +669,15 @@ select.ctrl:focus{border-color:var(--accent)}
     <div class="crumb-count" id="setCount"></div>
   </div>
   <div class="grid-area view-grid" id="setGrid"></div>
+</div>
+
+<!-- ŁADOWARKI VIEW -->
+<div id="viewLadowarki" class="view" style="display:none">
+  <div class="proj-bar">
+    <div class="proj-title">🔋 Ładowarki</div>
+    <div class="crumb-count" id="chargerCount"></div>
+  </div>
+  <div class="grid-area view-grid" id="chargerGrid"></div>
 </div>
 
 <!-- NARZĘDZIA VIEW -->
@@ -944,6 +954,62 @@ select.ctrl:focus{border-color:var(--accent)}
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost" onclick="closeOverlay('toolFormOverlay')">Anuluj</button>
       <button class="btn btn-primary" id="tfSubmit" onclick="submitTool()">Zapisz</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ MODAL: CHARGER DETAIL ══════════════════════════════════════════════ -->
+<div class="overlay" id="chargerOverlay">
+<div class="modal">
+  <div class="modal-head">
+    <div class="modal-title" id="chargerTitle">// ładowarka</div>
+    <button class="modal-x" onclick="closeOverlay('chargerOverlay')">×</button>
+  </div>
+  <div class="modal-body" id="chargerBody"></div>
+</div>
+</div>
+
+<!-- ═══ MODAL: CHARGER FORM ════════════════════════════════════════════════ -->
+<div class="overlay" id="chargerFormOverlay">
+<div class="modal">
+  <div class="modal-head">
+    <div class="modal-title" id="chargerFormTitle">// nowa_ładowarka</div>
+    <button class="modal-x" onclick="closeOverlay('chargerFormOverlay')">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="cfId">
+    <div class="fg">
+      <label class="flabel">Nazwa <span class="req">*</span></label>
+      <input class="finput" id="cfName" placeholder="np. Ładowarka XTAR VC4">
+    </div>
+    <div class="fg">
+      <label class="flabel">Opis</label>
+      <textarea class="ftextarea" id="cfDesc" placeholder="Krótki opis / parametry…"></textarea>
+    </div>
+    <div class="fg">
+      <label class="flabel">Zdjęcie</label>
+      <div class="upload-zone" id="cfUploadZone"
+           ondragover="cfZoneDrag(event,true)" ondragleave="cfZoneDrag(event,false)" ondrop="cfZoneDrop(event)">
+        <input type="file" id="cfImg" accept="image/*" onchange="cfImgPicked(event)">
+        <div id="cfUploadHint">
+          <div style="font-size:24px;color:var(--dim)">📷</div>
+          <div>Kliknij lub przeciągnij zdjęcie</div>
+          <div class="upload-hint">zostanie automatycznie skompresowane</div>
+        </div>
+        <div id="cfImgPreviewWrap" style="display:none">
+          <div class="img-preview-wrap">
+            <img id="cfImgPrev" src="" alt="podgląd">
+            <button type="button" class="img-remove" onclick="cfClearImg(event)">×</button>
+          </div>
+          <div class="upload-hint" id="cfImgInfo" style="margin-top:6px"></div>
+        </div>
+      </div>
+      <input type="hidden" id="cfRemoveImg" value="0">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeOverlay('chargerFormOverlay')">Anuluj</button>
+      <button class="btn btn-primary" id="cfSubmit" onclick="submitCharger()">Zapisz</button>
     </div>
   </div>
 </div>
@@ -1904,8 +1970,8 @@ let activeView = 'magazyn';
 function switchView(v){
   activeView = v;
   clearSelection();
-  const views = { magazyn:'viewMagazyn', projekty:'viewProjekty', zestawy:'viewZestawy', narzedzia:'viewNarzedzia' };
-  const tabs  = { magazyn:'tabMagazyn',  projekty:'tabProjekty',  zestawy:'tabZestawy',  narzedzia:'tabNarzedzia' };
+  const views = { magazyn:'viewMagazyn', projekty:'viewProjekty', zestawy:'viewZestawy', narzedzia:'viewNarzedzia', ladowarki:'viewLadowarki' };
+  const tabs  = { magazyn:'tabMagazyn',  projekty:'tabProjekty',  zestawy:'tabZestawy',  narzedzia:'tabNarzedzia',  ladowarki:'tabLadowarki' };
   for(const k in views){
     $(views[k]).style.display = v===k ? 'flex' : 'none';
     $(tabs[k]).classList.toggle('active', v===k);
@@ -1913,15 +1979,18 @@ function switchView(v){
   $('headerAddBtn').textContent =
     v==='projekty'  ? '+ Nowy projekt' :
     v==='zestawy'   ? '+ Nowy zestaw' :
-    v==='narzedzia' ? '+ Nowe narzędzie' : '+ Dodaj komponent';
+    v==='narzedzia' ? '+ Nowe narzędzie' :
+    v==='ladowarki' ? '+ Nowa ładowarka' : '+ Dodaj komponent';
   if(v==='projekty')  loadProjects();
   if(v==='zestawy')   loadSets();
   if(v==='narzedzia') loadTools();
+  if(v==='ladowarki') loadChargers();
 }
 function headerAdd(){
   if(activeView==='projekty')  return UI.openProjectAdd();
   if(activeView==='zestawy')   return UI.openSetAdd();
   if(activeView==='narzedzia') return UI.openToolAdd();
+  if(activeView==='ladowarki') return UI.openChargerAdd();
   UI.openAdd();
 }
 
@@ -1983,6 +2052,10 @@ async function openProject(id){
       <input class="finput" id="projCompQty" type="number" min="1" value="1">
       <button class="btn btn-ghost btn-sm" onclick="addCompToProject()">Dodaj</button>
     </div>
+    ${(p.chargers && p.chargers.length) ? `<div class="detail-field" style="margin-top:14px">
+      <label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Ładowarki</label>
+      <div class="dval">${p.chargers.map(c=>`<span class="link-chip"><span class="link-chip-go" onclick="goToCharger(${c.id})">🔋 ${esc(c.name)}</span><button class="chip-x" title="Odłącz" onclick="unassignChargerFromProject(${id},${c.id})">✕</button></span>`).join('')}</div>
+    </div>` : ''}
     <div class="detail-actions" style="margin-top:16px">
       <button class="btn btn-ghost btn-sm" onclick="closeOverlay('projOverlay');UI.openProjectEdit(${id})">✏ Edytuj</button>
       <button class="btn btn-danger btn-sm" onclick="deleteProject(${id})">🗑 Usuń</button>
@@ -2006,6 +2079,10 @@ async function removeCompFromProject(cid){
   const r = await fetch(`/api/projects/${currentProjectId}/components/${cid}`,{method:'DELETE'});
   if(r.ok){ openProject(currentProjectId); loadProjects(); }
 }
+async function unassignChargerFromProject(pid, cid){
+  const r = await fetch(`/api/projects/${pid}/chargers/${cid}`,{method:'DELETE'});
+  if(r.ok){ openProject(pid); loadChargers(); }
+}
 
 async function deleteProject(id){
   if(!confirm('Usunąć ten projekt? (komponenty pozostaną w magazynie)')) return;
@@ -2015,7 +2092,7 @@ async function deleteProject(id){
 
 // cross-navigation
 function goToComponent(id){ closeOverlay('projOverlay'); closeOverlay('setOverlay'); closeOverlay('toolOverlay'); switchView('magazyn'); openDetail(id); }
-function goToProject(id){ closeOverlay('detailOverlay'); switchView('projekty'); openProject(id); }
+function goToProject(id){ closeOverlay('detailOverlay'); closeOverlay('chargerOverlay'); switchView('projekty'); openProject(id); }
 
 // assign a component to a project straight from the component detail (under "w użyciu")
 async function assignComponentToProject(cid, pid, qty){
@@ -2127,7 +2204,8 @@ async function loadSets(){
         <div class="pcard-foot">
           ${s.comp_count?`<span class="pcard-badge">🔩 ${s.comp_count} elem.</span>`:''}
           ${s.tool_count?`<span class="pcard-badge">🔧 ${s.tool_count} narz.</span>`:''}
-          ${(!s.comp_count && !s.tool_count)?`<span class="pcard-badge">pusty</span>`:''}
+          ${s.set_count?`<span class="pcard-badge">🧰 ${s.set_count} zest.</span>`:''}
+          ${(!s.comp_count && !s.tool_count && !s.set_count)?`<span class="pcard-badge">pusty</span>`:''}
         </div>
       </div>
     </div>`;
@@ -2143,6 +2221,12 @@ async function openSet(id){
   const allTools = await fetch('/api/tools').then(r=>r.json());
   const toolOpts = '<option value="">— wybierz narzędzie —</option>' +
     allTools.map(t=>`<option value="${t.id}">🔧 ${esc(t.name)}</option>`).join('');
+  const allChargers = await fetch('/api/chargers').then(r=>r.json());
+  const chargerOpts = '<option value="">— wybierz ładowarkę —</option>' +
+    allChargers.map(c=>`<option value="${c.id}">🔋 ${esc(c.name)}</option>`).join('');
+  const allSets = await fetch('/api/sets').then(r=>r.json());
+  const subsetOpts = '<option value="">— wybierz zestaw —</option>' +
+    allSets.filter(x=>x.id!==id).map(x=>`<option value="${x.id}">🧰 ${esc(x.name)}</option>`).join('');
 
   $('setTitle').textContent = `// ${s.name}`;
   const comps = s.components.map(c=>{
@@ -2166,6 +2250,25 @@ async function openSet(id){
     </div>`;
   }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak narzędzi.</div>';
 
+  const chargersList = (s.chargers||[]).map(c=>{
+    const thumb = c.image ? `<img class="proj-comp-thumb" src="${c.image}" alt="">` : `<div class="proj-comp-ph">🔋</div>`;
+    return `<div class="proj-comp">
+      ${thumb}
+      <span class="proj-comp-name" onclick="goToCharger(${c.id})" title="Przejdź do ładowarki">🔋 ${esc(c.name)}</span>
+      <button class="qbtn" title="Usuń z zestawu" onclick="removeChargerFromSet(${c.id})">−</button>
+    </div>`;
+  }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak ładowarek.</div>';
+
+  const subsetsList = (s.subsets||[]).map(x=>{
+    const thumb = x.image ? `<img class="proj-comp-thumb" src="${x.image}" alt="">` : `<div class="proj-comp-ph">🧰</div>`;
+    return `<div class="proj-comp">
+      ${thumb}
+      <span class="proj-comp-name" onclick="goToSet(${x.id})" title="Przejdź do zestawu">🧰 ${esc(x.name)}</span>
+      <span class="proj-comp-qty">${x.comp_count} elem.</span>
+      <button class="qbtn" title="Usuń podzestaw" onclick="removeSubsetFromSet(${x.id})">−</button>
+    </div>`;
+  }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak podzestawów.</div>';
+
   $('setBody').innerHTML = `
     ${s.image?`<img class="detail-img" src="${s.image}" alt="${esc(s.name)}">`:''}
     ${s.description?`<div class="proj-desc">${esc(s.description)}</div>`:''}
@@ -2183,6 +2286,25 @@ async function openSet(id){
       <select class="fselect" id="setToolSel">${toolOpts}</select>
       <button class="btn btn-ghost btn-sm" onclick="addToolToSet()">Dodaj</button>
     </div>
+
+    <div class="detail-field" style="margin-top:14px"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Ładowarki</label></div>
+    <div style="margin:8px 0">${chargersList}</div>
+    <div class="proj-add-row">
+      <select class="fselect" id="setChargerSel">${chargerOpts}</select>
+      <button class="btn btn-ghost btn-sm" onclick="addChargerToSet()">Dodaj</button>
+    </div>
+
+    <div class="detail-field" style="margin-top:14px"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Podzestawy</label></div>
+    <div style="margin:8px 0">${subsetsList}</div>
+    <div class="proj-add-row">
+      <select class="fselect" id="setSubsetSel">${subsetOpts}</select>
+      <button class="btn btn-ghost btn-sm" onclick="addSubsetToSet()">Dodaj</button>
+    </div>
+
+    ${(s.inSets && s.inSets.length) ? `<div class="detail-field" style="margin-top:14px">
+      <label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Wchodzi w skład zestawów</label>
+      <div class="dval">${s.inSets.map(x=>`<span class="link-chip"><span class="link-chip-go" onclick="goToSet(${x.id})">🧰 ${esc(x.name)}</span></span>`).join('')}</div>
+    </div>` : ''}
 
     ${(s.usedInTools && s.usedInTools.length) ? `<div class="detail-field" style="margin-top:14px">
       <label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Używany w narzędziach</label>
@@ -2221,6 +2343,26 @@ async function removeToolFromSet(tid){
   const r = await fetch(`/api/sets/${currentSetId}/tools/${tid}`,{method:'DELETE'});
   if(r.ok){ openSet(currentSetId); loadSets(); }
 }
+async function addChargerToSet(){
+  const cid = $('setChargerSel').value;
+  if(!cid) return toast('Wybierz ładowarkę','err');
+  const r = await fetch(`/api/sets/${currentSetId}/chargers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({charger_id:Number(cid)})});
+  if(r.ok){ openSet(currentSetId); } else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd','err'); }
+}
+async function removeChargerFromSet(cid){
+  const r = await fetch(`/api/sets/${currentSetId}/chargers/${cid}`,{method:'DELETE'});
+  if(r.ok){ openSet(currentSetId); }
+}
+async function addSubsetToSet(){
+  const cid = $('setSubsetSel').value;
+  if(!cid) return toast('Wybierz zestaw','err');
+  const r = await fetch(`/api/sets/${currentSetId}/sets`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({child_id:Number(cid)})});
+  if(r.ok){ openSet(currentSetId); loadSets(); } else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd','err'); }
+}
+async function removeSubsetFromSet(cid){
+  const r = await fetch(`/api/sets/${currentSetId}/sets/${cid}`,{method:'DELETE'});
+  if(r.ok){ openSet(currentSetId); loadSets(); }
+}
 
 async function removeCompFromSet(cid){
   const r = await fetch(`/api/sets/${currentSetId}/components/${cid}`,{method:'DELETE'});
@@ -2233,7 +2375,7 @@ async function deleteSet(id){
   if(r.ok){ closeOverlay('setOverlay'); toast('Zestaw usunięty'); loadSets(); loadComponents(); }
 }
 
-function goToSet(id){ closeOverlay('detailOverlay'); closeOverlay('toolOverlay'); switchView('zestawy'); openSet(id); }
+function goToSet(id){ closeOverlay('detailOverlay'); closeOverlay('toolOverlay'); closeOverlay('chargerOverlay'); switchView('zestawy'); openSet(id); }
 
 // assign a component to a set straight from the component detail (under "w użyciu")
 async function assignComponentToSet(cid, sid){
@@ -2344,6 +2486,9 @@ async function openTool(id){
     allC.map(c=>`<option value="${c.id}">${esc(c.name)}${c.cat_name?` — ${esc(c.cat_name)}`:''}</option>`).join('');
   const setOpts  = '<option value="">— wybierz zestaw —</option>' +
     allS.map(s=>`<option value="${s.id}">🧰 ${esc(s.name)}</option>`).join('');
+  const allCh = await fetch('/api/chargers').then(r=>r.json());
+  const chargerOpts = '<option value="">— wybierz ładowarkę —</option>' +
+    allCh.map(c=>`<option value="${c.id}">🔋 ${esc(c.name)}</option>`).join('');
 
   const comps = t.components.map(c=>{
     const thumb = c.image ? `<img class="proj-comp-thumb" src="${c.image}" alt="">` : `<div class="proj-comp-ph">${catEmoji(c.cat_name)}</div>`;
@@ -2374,6 +2519,15 @@ async function openTool(id){
     </div>`;
   }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak zestawów.</div>';
 
+  const toolChargers = (t.chargers||[]).map(c=>{
+    const thumb = c.image ? `<img class="proj-comp-thumb" src="${c.image}" alt="">` : `<div class="proj-comp-ph">🔋</div>`;
+    return `<div class="proj-comp">
+      ${thumb}
+      <span class="proj-comp-name" onclick="goToCharger(${c.id})" title="Przejdź do ładowarki">🔋 ${esc(c.name)}</span>
+      <button class="qbtn" title="Odłącz ładowarkę" onclick="removeChargerFromTool(${c.id})">−</button>
+    </div>`;
+  }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak ładowarek.</div>';
+
   $('toolTitle').textContent = `// ${t.name}`;
   $('toolBody').innerHTML = `
     ${t.image?`<img class="detail-img" src="${t.image}" alt="${esc(t.name)}">`:''}
@@ -2392,6 +2546,13 @@ async function openTool(id){
     <div class="proj-add-row">
       <select class="fselect" id="toolSetSel">${setOpts}</select>
       <button class="btn btn-ghost btn-sm" onclick="addSetToTool()">Dodaj</button>
+    </div>
+
+    <div class="detail-field" style="margin-top:14px"><label style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Ładowarki</label></div>
+    <div style="margin:8px 0">${toolChargers}</div>
+    <div class="proj-add-row">
+      <select class="fselect" id="toolChargerSel">${chargerOpts}</select>
+      <button class="btn btn-ghost btn-sm" onclick="addChargerToTool()">Dodaj</button>
     </div>
 
     ${(t.in_sets && t.in_sets.length) ? `<div class="detail-field" style="margin-top:14px">
@@ -2431,6 +2592,16 @@ async function removeSetFromTool(sid){
   const r=await fetch(`/api/tools/${currentToolId}/sets/${sid}`,{method:'DELETE'});
   if(r.ok){ openTool(currentToolId); }
 }
+async function addChargerToTool(){
+  const cid=$('toolChargerSel').value;
+  if(!cid) return toast('Wybierz ładowarkę','err');
+  const r=await fetch(`/api/tools/${currentToolId}/chargers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({charger_id:Number(cid)})});
+  if(r.ok){ openTool(currentToolId); } else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd','err'); }
+}
+async function removeChargerFromTool(cid){
+  const r=await fetch(`/api/tools/${currentToolId}/chargers/${cid}`,{method:'DELETE'});
+  if(r.ok){ openTool(currentToolId); }
+}
 // assign a component to a tool from the component detail
 async function assignComponentToTool(cid, tid){
   if(!tid) return;
@@ -2443,7 +2614,7 @@ async function unassignComponentFromTool(tid, cid){
   if(r.ok){ toast('Odłączono od narzędzia'); openDetail(cid); loadTools(); loadComponents(); }
   else { toast('Nie udało się odłączyć','err'); }
 }
-function goToTool(id){ closeOverlay('detailOverlay'); closeOverlay('setOverlay'); switchView('narzedzia'); openTool(id); }
+function goToTool(id){ closeOverlay('detailOverlay'); closeOverlay('setOverlay'); closeOverlay('chargerOverlay'); switchView('narzedzia'); openTool(id); }
 
 async function deleteTool(id){
   if(!confirm('Usunąć to narzędzie? (komponenty i zestawy pozostaną)')) return;
@@ -2507,6 +2678,153 @@ function tfClearImg(e){ e.stopPropagation(); pendingToolImage=null; $('tfRemoveI
 function tfResetImgUI(){ pendingToolImage=null; $('tfImg').value=''; $('tfUploadHint').style.display='block'; $('tfImgPreviewWrap').style.display='none'; $('tfImgPrev').src=''; $('tfImgInfo').textContent=''; }
 function tfZoneDrag(e,on){ e.preventDefault(); $('tfUploadZone').classList.toggle('drag',on); }
 function tfZoneDrop(e){ e.preventDefault(); $('tfUploadZone').classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')){ const dt=new DataTransfer(); dt.items.add(f); $('tfImg').files=dt.files; tfImgPicked({target:{files:[f]}}); } }
+
+// ═══ CHARGERS (Ładowarki) ════════════════════════════════════════════════════
+let currentChargerId = null;
+let pendingChargerImage = null;
+
+async function loadChargers(){
+  const data = await fetch('/api/chargers').then(r=>r.json());
+  $('chargerCount').textContent = `${data.length} ${data.length===1?'ładowarka':(data.length%10>=2&&data.length%10<=4&&!(data.length%100>=12&&data.length%100<=14)?'ładowarki':'ładowarek')}`;
+  if(!data.length){
+    $('chargerGrid').innerHTML = `<div class="empty"><div class="empty-icon">🔋</div><h3>Brak ładowarek</h3><p>Kliknij „+ Nowa ładowarka", aby dodać pierwszą.</p></div>`;
+    return;
+  }
+  $('chargerGrid').innerHTML = data.map(ch=>{
+    const img = ch.image ? `<img class="pcard-img" src="${ch.image}" alt="${esc(ch.name)}" loading="lazy">` : `<div class="pcard-ph">🔋</div>`;
+    return `<div class="pcard" onclick="openCharger(${ch.id})">
+      ${img}
+      <div class="pcard-body">
+        <div class="pcard-name">${esc(ch.name)}</div>
+        ${ch.description?`<div class="pcard-desc">${esc(ch.description)}</div>`:''}
+        ${ch.link_count?`<div class="pcard-foot"><span class="pcard-badge">🔗 ${ch.link_count} przypisań</span></div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openCharger(id){
+  currentChargerId = id;
+  const ch = await fetch(`/api/chargers/${id}`).then(r=>r.json());
+  const [allSets, allTools, allProjects] = await Promise.all([
+    fetch('/api/sets').then(r=>r.json()),
+    fetch('/api/tools').then(r=>r.json()),
+    fetch('/api/projects').then(r=>r.json()),
+  ]);
+  const linkedS = new Set(ch.sets.map(x=>x.id)), linkedT = new Set(ch.tools.map(x=>x.id)), linkedP = new Set(ch.projects.map(x=>x.id));
+  const opt = (arr, linked, icon) => arr.filter(x=>!linked.has(x.id)).map(x=>`<option value="${x.id}">${icon} ${esc(x.name)}</option>`).join('');
+
+  const chips = (arr, icon, kind) => arr.map(x=>
+    `<span class="link-chip"><span class="link-chip-go" onclick="goTo${kind}(${x.id})">${icon} ${esc(x.name)}</span><button class="chip-x" title="Odłącz" onclick="unassignCharger('${kind.toLowerCase()}', ${x.id}, ${id})">✕</button></span>`
+  ).join('');
+
+  $('chargerTitle').textContent = `// ${ch.name}`;
+  $('chargerBody').innerHTML = `
+    ${ch.image?`<img class="detail-img" src="${ch.image}" alt="${esc(ch.name)}">`:''}
+    ${ch.description?`<div class="proj-desc">${esc(ch.description)}</div>`:''}
+
+    <div class="detail-field" style="grid-column:1/-1"><label>Zestawy</label>
+      <div class="dval">${chips(ch.sets,'🧰','Set') || '<span style="color:var(--dim);font-size:12px">— brak —</span>'}
+        <select class="fselect proj-picker" onchange="assignCharger('set', ${id}, this.value)"><option value="">↳ dodaj do zestawu…</option>${opt(allSets,linkedS,'🧰')}</select>
+      </div>
+    </div>
+    <div class="detail-field" style="grid-column:1/-1"><label>Narzędzia</label>
+      <div class="dval">${chips(ch.tools,'🔧','Tool') || '<span style="color:var(--dim);font-size:12px">— brak —</span>'}
+        <select class="fselect proj-picker" onchange="assignCharger('tool', ${id}, this.value)"><option value="">↳ dodaj do narzędzia…</option>${opt(allTools,linkedT,'🔧')}</select>
+      </div>
+    </div>
+    <div class="detail-field" style="grid-column:1/-1"><label>Projekty (rzadko)</label>
+      <div class="dval">${chips(ch.projects,'🧩','Project') || '<span style="color:var(--dim);font-size:12px">— brak —</span>'}
+        <select class="fselect proj-picker" onchange="assignCharger('project', ${id}, this.value)"><option value="">↳ dodaj do projektu…</option>${opt(allProjects,linkedP,'🧩')}</select>
+      </div>
+    </div>
+
+    <div class="detail-field"><label>Dodano</label><div class="dval" style="color:var(--muted);font-size:12px">${new Date(ch.created_at).toLocaleString('pl-PL')}</div></div>
+    <div class="detail-actions" style="margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="closeOverlay('chargerOverlay');UI.openChargerEdit(${id})">✏ Edytuj</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteCharger(${id})">🗑 Usuń</button>
+    </div>`;
+  openOverlay('chargerOverlay');
+}
+
+// assign a charger to a set/tool/project (kind = 'set'|'tool'|'project')
+async function assignCharger(kind, chId, parentId){
+  if(!parentId) return;
+  const path = kind==='set' ? 'sets' : kind==='tool' ? 'tools' : 'projects';
+  const r = await fetch(`/api/${path}/${parentId}/chargers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({charger_id:Number(chId)})});
+  if(r.ok){ toast('Przypisano'); openCharger(chId); refreshContainers(); }
+  else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd','err'); }
+}
+async function unassignCharger(kind, parentId, chId){
+  const path = kind==='set' ? 'sets' : kind==='tool' ? 'tools' : 'projects';
+  const r = await fetch(`/api/${path}/${parentId}/chargers/${chId}`,{method:'DELETE'});
+  if(r.ok){ toast('Odłączono'); openCharger(chId); refreshContainers(); }
+}
+function refreshContainers(){ loadSets(); loadTools(); loadProjects(); }
+
+function goToCharger(id){ closeOverlay('setOverlay'); closeOverlay('toolOverlay'); closeOverlay('projOverlay'); switchView('ladowarki'); openCharger(id); }
+
+async function deleteCharger(id){
+  if(!confirm('Usunąć tę ładowarkę?')) return;
+  const r = await fetch(`/api/chargers/${id}`,{method:'DELETE'});
+  if(r.ok){ closeOverlay('chargerOverlay'); toast('Ładowarka usunięta'); loadChargers(); refreshContainers(); }
+}
+
+Object.assign(UI, {
+  openChargerAdd(){
+    $('cfId').value=''; $('cfName').value=''; $('cfDesc').value='';
+    $('chargerFormTitle').textContent='// nowa_ładowarka';
+    $('cfSubmit').textContent='Zapisz ładowarkę';
+    $('cfRemoveImg').value='0'; cfResetImgUI();
+    openOverlay('chargerFormOverlay');
+  },
+  async openChargerEdit(id){
+    const ch = await fetch(`/api/chargers/${id}`).then(r=>r.json());
+    $('cfId').value=id; $('cfName').value=ch.name; $('cfDesc').value=ch.description||'';
+    $('chargerFormTitle').textContent=`// edytuj: ${ch.name}`;
+    $('cfSubmit').textContent='Zapisz zmiany';
+    $('cfRemoveImg').value='0'; pendingChargerImage=null; $('cfImg').value='';
+    if(ch.image){ $('cfUploadHint').style.display='none'; $('cfImgPreviewWrap').style.display='block'; $('cfImgPrev').src=ch.image; $('cfImgInfo').textContent=''; }
+    else cfResetImgUI();
+    openOverlay('chargerFormOverlay');
+  }
+});
+
+async function submitCharger(){
+  const name = $('cfName').value.trim();
+  if(!name){ toast('Nazwa jest wymagana','err'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('description', $('cfDesc').value.trim());
+  fd.append('remove_image', $('cfRemoveImg').value);
+  const imgFile = pendingChargerImage || $('cfImg').files[0];
+  if(imgFile) fd.append('image', imgFile);
+  const id = $('cfId').value;
+  const r = await fetch(id?`/api/chargers/${id}`:'/api/chargers', {method:id?'PUT':'POST', body:fd});
+  if(r.ok){
+    pendingChargerImage=null; $('cfImg').value='';
+    closeOverlay('chargerFormOverlay');
+    toast(id?'Ładowarka zaktualizowana':'Ładowarka dodana');
+    loadChargers();
+    if(id && currentChargerId==id) openCharger(id);
+  } else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd zapisu','err'); }
+}
+
+async function cfImgPicked(e){
+  const f=e.target.files[0]; if(!f) return;
+  $('cfUploadHint').style.display='none'; $('cfImgPreviewWrap').style.display='block';
+  $('cfImgPrev').src=URL.createObjectURL(f); $('cfImgInfo').textContent='Kompresja…';
+  try{
+    const out=await compressImage(f);
+    pendingChargerImage = out.size<f.size ? out : f;
+    $('cfImgPrev').src=URL.createObjectURL(pendingChargerImage);
+    $('cfImgInfo').textContent=`${fmtKB(f.size)} → ${fmtKB(pendingChargerImage.size)}`;
+  }catch(err){ pendingChargerImage=f; $('cfImgInfo').textContent=fmtKB(f.size); toast(err.message||'Błąd obrazu','err'); }
+}
+function cfClearImg(e){ e.stopPropagation(); pendingChargerImage=null; $('cfRemoveImg').value='1'; $('cfImg').value=''; cfResetImgUI(); }
+function cfResetImgUI(){ pendingChargerImage=null; $('cfImg').value=''; $('cfUploadHint').style.display='block'; $('cfImgPreviewWrap').style.display='none'; $('cfImgPrev').src=''; $('cfImgInfo').textContent=''; }
+function cfZoneDrag(e,on){ e.preventDefault(); $('cfUploadZone').classList.toggle('drag',on); }
+function cfZoneDrop(e){ e.preventDefault(); $('cfUploadZone').classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')){ const dt=new DataTransfer(); dt.items.add(f); $('cfImg').files=dt.files; cfImgPicked({target:{files:[f]}}); } }
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 async function init(){
