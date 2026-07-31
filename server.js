@@ -22,6 +22,7 @@ db.exec(`
     name        TEXT    NOT NULL,
     qty         INTEGER NOT NULL DEFAULT 0 CHECK(qty >= 0),
     in_use      INTEGER NOT NULL DEFAULT 0 CHECK(in_use >= 0),
+    damaged     INTEGER NOT NULL DEFAULT 0 CHECK(damaged >= 0),
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     notes       TEXT,
     image       TEXT,
@@ -131,6 +132,8 @@ try { db.exec('ALTER TABLE components ADD COLUMN in_use INTEGER NOT NULL DEFAULT
 try { db.exec('ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE'); } catch {}
 // Migrate existing DB: add favorite flag if missing
 try { db.exec('ALTER TABLE components ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0'); } catch {}
+// Migrate existing DB: add damaged count if missing
+try { db.exec('ALTER TABLE components ADD COLUMN damaged INTEGER NOT NULL DEFAULT 0'); } catch {}
 // Migrate existing DB: add carton (box) label if missing
 try { db.exec('ALTER TABLE components ADD COLUMN carton TEXT'); } catch {}
 // Migrate existing DB: add free-text "used in" note if missing
@@ -368,9 +371,10 @@ app.get('/api/components', (req, res) => {
   switch (req.query.status) {
     case 'in_stock':  sql += ' AND comp.qty > 0'; break;
     case 'in_use':    sql += ' AND comp.in_use > 0'; break;
-    case 'available': sql += ' AND (comp.qty - comp.in_use) > 0'; break;
-    case 'low':       sql += ' AND (comp.qty - comp.in_use) BETWEEN 1 AND 5'; break;
-    case 'out':       sql += ' AND (comp.qty - comp.in_use) <= 0'; break;
+    case 'damaged':   sql += ' AND comp.damaged > 0'; break;
+    case 'available': sql += ' AND (comp.qty - comp.in_use - comp.damaged) > 0'; break;
+    case 'low':       sql += ' AND (comp.qty - comp.in_use - comp.damaged) BETWEEN 1 AND 5'; break;
+    case 'out':       sql += ' AND (comp.qty - comp.in_use - comp.damaged) <= 0'; break;
   }
   sql += ` ORDER BY ${sorts[sort] || sorts.newest}`;
   res.json(db.prepare(sql).all(...params));
@@ -422,14 +426,15 @@ app.get('/api/components/:id', (req, res) => {
 });
 
 app.post('/api/components', upload.single('image'), (req, res) => {
-  const { name, qty, in_use, category_id, notes, carton } = req.body;
+  const { name, qty, in_use, damaged, category_id, notes, carton } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Nazwa wymagana' });
   const image = req.file ? `/uploads/${req.file.filename}` : null;
-  const safeQty    = Number(qty)    || 0;
-  const safeInUse  = Math.min(Number(in_use) || 0, safeQty);
+  const safeQty     = Number(qty)    || 0;
+  const safeInUse   = Math.min(Number(in_use) || 0, safeQty);
+  const safeDamaged = Math.min(Number(damaged) || 0, safeQty - safeInUse);
   const r = db.prepare(
-    'INSERT INTO components(name,qty,in_use,category_id,notes,image,carton) VALUES(?,?,?,?,?,?,?)'
-  ).run(name.trim(), safeQty, safeInUse, category_id||null, notes?.trim()||null, image, carton?.trim()||null);
+    'INSERT INTO components(name,qty,in_use,damaged,category_id,notes,image,carton) VALUES(?,?,?,?,?,?,?,?)'
+  ).run(name.trim(), safeQty, safeInUse, safeDamaged, category_id||null, notes?.trim()||null, image, carton?.trim()||null);
   res.status(201).json({ id: Number(r.lastInsertRowid) });
 });
 
@@ -437,7 +442,7 @@ app.put('/api/components/:id', upload.single('image'), (req, res) => {
   const existing = db.prepare('SELECT * FROM components WHERE id=?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
 
-  const { name, qty, in_use, category_id, notes, remove_image, carton } = req.body;
+  const { name, qty, in_use, damaged, category_id, notes, remove_image, carton } = req.body;
   let image = existing.image;
 
   if (remove_image === '1') { removeFile(image); image = null; }
@@ -447,14 +452,18 @@ app.put('/api/components/:id', upload.single('image'), (req, res) => {
   const safeInUse = in_use !== undefined
     ? Math.min(Math.max(0, Number(in_use)), safeQty)
     : Math.min(existing.in_use, safeQty);
+  const safeDamaged = damaged !== undefined
+    ? Math.min(Math.max(0, Number(damaged)), safeQty - safeInUse)
+    : Math.min(existing.damaged, safeQty - safeInUse);
   const safeCarton = carton !== undefined ? (carton.trim() || null) : existing.carton;
 
   db.prepare(
-    'UPDATE components SET name=?,qty=?,in_use=?,category_id=?,notes=?,image=?,carton=? WHERE id=?'
+    'UPDATE components SET name=?,qty=?,in_use=?,damaged=?,category_id=?,notes=?,image=?,carton=? WHERE id=?'
   ).run(
     (name||'').trim() || existing.name,
     safeQty,
     safeInUse,
+    safeDamaged,
     category_id || null,
     (notes||'').trim() || null,
     image,
@@ -467,11 +476,11 @@ app.put('/api/components/:id', upload.single('image'), (req, res) => {
 // Quick quantity bump (+/-) for stock qty
 app.patch('/api/components/:id/qty', (req, res) => {
   const { delta } = req.body;
-  const row = db.prepare('SELECT qty, in_use FROM components WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT qty, in_use, damaged FROM components WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Nie znaleziono' });
-  const newQty   = Math.max(row.in_use, row.qty + (Number(delta)||0)); // can't go below in_use
+  const newQty = Math.max(row.in_use + row.damaged, row.qty + (Number(delta)||0)); // can't go below in_use+damaged
   db.prepare('UPDATE components SET qty=? WHERE id=?').run(newQty, req.params.id);
-  res.json({ qty: newQty, in_use: row.in_use, available: newQty - row.in_use });
+  res.json({ qty: newQty, in_use: row.in_use, damaged: row.damaged, available: newQty - row.in_use - row.damaged });
 });
 
 // Toggle favorite (or set explicitly via { favorite: 0|1 })
@@ -498,11 +507,21 @@ app.patch('/api/components/:id/used_in', (req, res) => {
 // Quick in_use bump (+/-)
 app.patch('/api/components/:id/in_use', (req, res) => {
   const { delta } = req.body;
-  const row = db.prepare('SELECT qty, in_use FROM components WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT qty, in_use, damaged FROM components WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Nie znaleziono' });
-  const newInUse = Math.max(0, Math.min(row.qty, row.in_use + (Number(delta)||0)));
+  const newInUse = Math.max(0, Math.min(row.qty - row.damaged, row.in_use + (Number(delta)||0)));
   db.prepare('UPDATE components SET in_use=? WHERE id=?').run(newInUse, req.params.id);
-  res.json({ qty: row.qty, in_use: newInUse, available: row.qty - newInUse });
+  res.json({ qty: row.qty, in_use: newInUse, damaged: row.damaged, available: row.qty - newInUse - row.damaged });
+});
+
+// Quick damaged bump (+/-)
+app.patch('/api/components/:id/damaged', (req, res) => {
+  const { delta } = req.body;
+  const row = db.prepare('SELECT qty, in_use, damaged FROM components WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Nie znaleziono' });
+  const newDamaged = Math.max(0, Math.min(row.qty - row.in_use, row.damaged + (Number(delta)||0)));
+  db.prepare('UPDATE components SET damaged=? WHERE id=?').run(newDamaged, req.params.id);
+  res.json({ qty: row.qty, in_use: row.in_use, damaged: newDamaged, available: row.qty - row.in_use - newDamaged });
 });
 
 app.delete('/api/components/:id', (req, res) => {
@@ -536,7 +555,7 @@ app.get('/api/projects/:id', (req, res) => {
   const p = db.prepare('SELECT * FROM projects WHERE id=?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Nie znaleziono' });
   p.components = db.prepare(`
-    SELECT pc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.image, cat.name AS cat_name
+    SELECT pc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.damaged, c.image, cat.name AS cat_name
     FROM project_components pc
     JOIN components c ON c.id = pc.component_id
     LEFT JOIN categories cat ON cat.id = c.category_id
@@ -619,7 +638,7 @@ app.get('/api/sets/:id', (req, res) => {
   const s = db.prepare('SELECT * FROM sets WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Nie znaleziono' });
   s.components = db.prepare(`
-    SELECT sc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.image, cat.name AS cat_name
+    SELECT sc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.damaged, c.image, cat.name AS cat_name
     FROM set_components sc
     JOIN components c ON c.id = sc.component_id
     LEFT JOIN categories cat ON cat.id = c.category_id
@@ -761,7 +780,7 @@ app.get('/api/tools/:id', (req, res) => {
   const t = db.prepare('SELECT * FROM tools WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Nie znaleziono' });
   t.components = db.prepare(`
-    SELECT tc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.image, cat.name AS cat_name
+    SELECT tc.qty, c.id, c.name, c.qty AS stock, c.in_use, c.damaged, c.image, cat.name AS cat_name
     FROM tool_components tc
     JOIN components c ON c.id = tc.component_id
     LEFT JOIN categories cat ON cat.id = c.category_id
@@ -952,14 +971,15 @@ app.get('/api/stats', (req, res) => {
     params = ids;
   }
   const g = sql => db.prepare(sql).get(...params);
-  const { total }    = g(`SELECT COUNT(*) AS total FROM components${where}`);
-  const { sumQty }   = g(`SELECT COALESCE(SUM(qty),0) AS sumQty FROM components${where}`);
-  const { sumInUse } = g(`SELECT COALESCE(SUM(in_use),0) AS sumInUse FROM components${where}`);
+  const { total }     = g(`SELECT COUNT(*) AS total FROM components${where}`);
+  const { sumQty }    = g(`SELECT COALESCE(SUM(qty),0) AS sumQty FROM components${where}`);
+  const { sumInUse }  = g(`SELECT COALESCE(SUM(in_use),0) AS sumInUse FROM components${where}`);
+  const { sumDamaged }= g(`SELECT COALESCE(SUM(damaged),0) AS sumDamaged FROM components${where}`);
   const and = where ? ' AND' : ' WHERE';
-  const { lowStock } = g(`SELECT COUNT(*) AS lowStock FROM components${where}${and} (qty-in_use)<=5 AND (qty-in_use)>0`);
-  const { outStock } = g(`SELECT COUNT(*) AS outStock FROM components${where}${and} (qty-in_use)<=0`);
+  const { lowStock } = g(`SELECT COUNT(*) AS lowStock FROM components${where}${and} (qty-in_use-damaged)<=5 AND (qty-in_use-damaged)>0`);
+  const { outStock } = g(`SELECT COUNT(*) AS outStock FROM components${where}${and} (qty-in_use-damaged)<=0`);
   const { favorites }= g(`SELECT COUNT(*) AS favorites FROM components${where}${and} favorite=1`);
-  res.json({ total, sumQty, sumInUse, sumAvailable: sumQty - sumInUse, lowStock, outStock, favorites });
+  res.json({ total, sumQty, sumInUse, sumDamaged, sumAvailable: sumQty - sumInUse - sumDamaged, lowStock, outStock, favorites });
 });
 
 // Upload / multer error handler → clean JSON instead of a 500 HTML page

@@ -87,6 +87,7 @@ a{color:inherit}
 .eq-num{font-size:17px;font-weight:700;line-height:1}
 .eq-num.total{color:var(--accent)}
 .eq-num.inuse{color:#A78BFA}
+.eq-num.dmg{color:#E67E22}
 .eq-num.avail{color:var(--green)}
 .eq-op{font-size:14px;color:var(--dim);padding:0 2px;align-self:center;margin-top:6px}
 
@@ -198,6 +199,7 @@ a{color:inherit}
 .cstat b{font-family:var(--mono);font-size:12px;font-weight:700}
 .cstat.mag b{color:var(--accent)}
 .cstat.use b{color:#A78BFA}
+.cstat.dmg b{color:#E67E22}
 .cstat.av  b{color:var(--green)}
 .cstat.low b{color:var(--amber)}
 .cstat.out b{color:var(--red)}
@@ -351,11 +353,13 @@ select.ctrl:focus{border-color:var(--accent)}
 .qty-badge.warn  {background:var(--amber-lo);color:var(--amber)}
 .qty-badge.bad   {background:var(--red-lo)  ;color:var(--red)  }
 .qty-badge.inuse {background:rgba(167,139,250,.14);color:#A78BFA}
+.qty-badge.dmg   {background:rgba(230,126,34,.16);color:#E67E22}
 .led{width:6px;height:6px;border-radius:50%}
 .led.ok  {background:var(--green);box-shadow:0 0 5px var(--green)}
 .led.warn{background:var(--amber);box-shadow:0 0 5px var(--amber)}
 .led.bad {background:var(--red)  ;box-shadow:0 0 5px var(--red)  }
 .led.inuse{background:#A78BFA;box-shadow:0 0 5px #A78BFA}
+.led.dmg{background:#E67E22;box-shadow:0 0 5px #E67E22}
 
 /* ─── BADGES ROW ─────────────────────────────────────────── */
 .badges-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
@@ -370,6 +374,7 @@ select.ctrl:focus{border-color:var(--accent)}
 }
 .qbtn:hover{border-color:var(--accent);color:var(--accent)}
 .qbtn.use:hover{border-color:#A78BFA;color:#A78BFA}
+.qbtn.dmg:hover{border-color:#E67E22;color:#E67E22}
 
 /* controls section on card footer */
 .card-controls{
@@ -564,7 +569,7 @@ select.ctrl:focus{border-color:var(--accent)}
   <div class="stat clk" data-status="all" title="Pokaż wszystkie" onclick="toggleStatus('all')">
     <div class="stat-v blue" id="sTotal">—</div><div class="stat-l">Rodzaje</div>
   </div>
-  <!-- equation: W magazynie = W użyciu + Dostępne -->
+  <!-- equation: W magazynie = W użyciu + Uszkodzone + Dostępne -->
   <div class="stat-eq">
     <div class="eq-part clk" data-status="in_stock" title="Filtruj: w magazynie (ilość > 0)" onclick="toggleStatus('in_stock')">
       <div class="eq-num total" id="sSumQty">—</div>
@@ -574,6 +579,11 @@ select.ctrl:focus{border-color:var(--accent)}
     <div class="eq-part clk" data-status="in_use" title="Filtruj: w użyciu" onclick="toggleStatus('in_use')">
       <div class="eq-num inuse" id="sSumInUse">—</div>
       <div class="stat-l">W użyciu</div>
+    </div>
+    <div class="eq-op">+</div>
+    <div class="eq-part clk" data-status="damaged" title="Filtruj: uszkodzone" onclick="toggleStatus('damaged')">
+      <div class="eq-num dmg" id="sSumDamaged">—</div>
+      <div class="stat-l">Uszkodzone</div>
     </div>
     <div class="eq-op">+</div>
     <div class="eq-part clk" data-status="available" title="Filtruj: dostępne" onclick="toggleStatus('available')">
@@ -625,6 +635,7 @@ select.ctrl:focus{border-color:var(--accent)}
         <option value="all">Wszystkie statusy</option>
         <option value="in_stock">W magazynie</option>
         <option value="in_use">W użyciu</option>
+        <option value="damaged">Uszkodzone</option>
         <option value="available">Dostępne</option>
         <option value="low">Niski stan (≤5)</option>
         <option value="out">Brak dostępnych</option>
@@ -711,6 +722,11 @@ select.ctrl:focus{border-color:var(--accent)}
         <label class="flabel">W użyciu</label>
         <input class="finput" id="fInUse" type="number" min="0" value="0"
                placeholder="0" title="Nie więcej niż łączna ilość">
+      </div>
+      <div class="fg">
+        <label class="flabel">Uszkodzone</label>
+        <input class="finput" id="fDamaged" type="number" min="0" value="0"
+               placeholder="0" title="W użyciu + uszkodzone nie więcej niż łączna ilość">
       </div>
     </div>
     <div class="frow">
@@ -1056,6 +1072,10 @@ function inUseBadge(inUse){
   if(!inUse) return '';
   return `<span class="qty-badge inuse"><span class="led inuse"></span>${inUse} w użyciu</span>`;
 }
+function damagedBadge(damaged){
+  if(!damaged) return '';
+  return `<span class="qty-badge dmg"><span class="led dmg"></span>${damaged} uszk.</span>`;
+}
 
 function catEmoji(name=''){
   const m = {'Rezystory':'🔲','Kondensatory':'⚡','Tranzystory':'🔺',
@@ -1100,12 +1120,13 @@ function setView(v){
 async function loadStats(){
   // top strip — always the whole warehouse
   const s = await fetch('/api/stats').then(r=>r.json());
-  $('sTotal').textContent    = s.total;
-  $('sSumQty').textContent   = s.sumQty;
-  $('sSumInUse').textContent = s.sumInUse;
-  $('sSumAvail').textContent = s.sumAvailable;
-  $('sLow').textContent      = s.lowStock;
-  $('sOut').textContent      = s.outStock;
+  $('sTotal').textContent      = s.total;
+  $('sSumQty').textContent     = s.sumQty;
+  $('sSumInUse').textContent   = s.sumInUse;
+  $('sSumDamaged').textContent = s.sumDamaged;
+  $('sSumAvail').textContent   = s.sumAvailable;
+  $('sLow').textContent        = s.lowStock;
+  $('sOut').textContent        = s.outStock;
   // favorites filter button — show count
   $('favToggle').textContent = `${favOnly?'★':'☆'} Ulubione${s.favorites?` (${s.favorites})`:''}`;
   // crumb bar — summary of the selected category (incl. its subcategories)
@@ -1121,6 +1142,7 @@ async function loadCatStats(){
   box.innerHTML =
     chip('mag','W magazynie', s.sumQty) +
     chip('use','W użyciu',    s.sumInUse) +
+    chip('dmg','Uszkodzone',  s.sumDamaged, s.sumDamaged===0) +
     chip('av', 'Dostępne',    s.sumAvailable) +
     chip('low','Niski',       s.lowStock, s.lowStock===0) +
     chip('out','Brak',        s.outStock, s.outStock===0);
@@ -1482,7 +1504,7 @@ function favStar(c, inline){
 }
 
 function cardHtml(c){
-  const avail = c.qty - c.in_use;
+  const avail = c.qty - c.in_use - (c.damaged||0);
   const img = c.image
     ? `<img class="ccard-img" src="${c.image}" alt="${esc(c.name)}" loading="lazy">`
     : `<div class="ccard-ph">${catEmoji(c.cat_name)}</div>`;
@@ -1496,6 +1518,7 @@ function cardHtml(c){
         <div class="badges-row">
           ${ledBadge(avail)}
           ${c.in_use ? inUseBadge(c.in_use) : ''}
+          ${c.damaged ? damagedBadge(c.damaged) : ''}
         </div>
         <div class="card-controls" onclick="event.stopPropagation()">
           <div class="ctrl-row">
@@ -1508,6 +1531,11 @@ function cardHtml(c){
             <button class="qbtn use" onclick="bump(${c.id},'in_use',-1,this)">−</button>
             <button class="qbtn use" onclick="bump(${c.id},'in_use',+1,this)">+</button>
           </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label" style="color:#E67E2299">uszk.</span>
+            <button class="qbtn dmg" onclick="bump(${c.id},'damaged',-1,this)">−</button>
+            <button class="qbtn dmg" onclick="bump(${c.id},'damaged',+1,this)">+</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1515,7 +1543,7 @@ function cardHtml(c){
 }
 
 function rowHtml(c){
-  const avail = c.qty - c.in_use;
+  const avail = c.qty - c.in_use - (c.damaged||0);
   const img = c.image
     ? `<img class="crow-thumb" src="${c.image}" alt="${esc(c.name)}" loading="lazy">`
     : `<div class="crow-ph">${catEmoji(c.cat_name)}</div>`;
@@ -1528,6 +1556,7 @@ function rowHtml(c){
     <div class="badges-row" style="margin-left:auto;flex-shrink:0">
       ${ledBadge(avail)}
       ${c.in_use ? inUseBadge(c.in_use) : ''}
+      ${c.damaged ? damagedBadge(c.damaged) : ''}
     </div>
     <div onclick="event.stopPropagation()" style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
       <div class="ctrl-row">
@@ -1539,6 +1568,11 @@ function rowHtml(c){
         <span class="ctrl-label" style="color:#A78BFA99">użyc.</span>
         <button class="qbtn use" onclick="bump(${c.id},'in_use',-1,this)">−</button>
         <button class="qbtn use" onclick="bump(${c.id},'in_use',+1,this)">+</button>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-label" style="color:#E67E2299">uszk.</span>
+        <button class="qbtn dmg" onclick="bump(${c.id},'damaged',-1,this)">−</button>
+        <button class="qbtn dmg" onclick="bump(${c.id},'damaged',+1,this)">+</button>
       </div>
     </div>
   </div>`;
@@ -1553,24 +1587,23 @@ async function bump(id, field, delta, btn){
     body:JSON.stringify({delta})
   });
   if(r.ok){
-    const {qty, in_use, available} = await r.json();
+    const {in_use, damaged, available} = await r.json();
     const host = btn.closest('.ccard,.crow');
-
-    // update available badge
-    const avBadge = host.querySelector('.qty-badge:not(.inuse)');
-    const avLed   = avBadge?.querySelector('.led');
-    const cls     = qCls(available);
-    if(avBadge){ avBadge.className=`qty-badge ${cls}`; avLed.className=`led ${cls}`; avBadge.innerHTML=`<span class="led ${cls}"></span>${available} dost.`; }
-
-    // update or insert in_use badge
-    let iuBadge = host.querySelector('.qty-badge.inuse');
     const badgesRow = host.querySelector('.badges-row');
-    if(in_use > 0){
-      if(!iuBadge){ iuBadge=document.createElement('span'); iuBadge.className='qty-badge inuse'; badgesRow?.appendChild(iuBadge); }
-      iuBadge.innerHTML=`<span class="led inuse"></span>${in_use} w użyciu`;
-    } else {
-      iuBadge?.remove();
-    }
+
+    // available badge (ok/warn/bad — the one that is neither in-use nor damaged)
+    const avBadge = host.querySelector('.qty-badge:not(.inuse):not(.dmg)');
+    const cls = qCls(available);
+    if(avBadge){ avBadge.className=`qty-badge ${cls}`; avBadge.innerHTML=`<span class="led ${cls}"></span>${available} dost.`; }
+
+    // upsert in-use / damaged badges
+    const upsert = (sel, on, cls2, html) => {
+      let b = host.querySelector(sel);
+      if(on){ if(!b){ b=document.createElement('span'); b.className=`qty-badge ${cls2}`; badgesRow?.appendChild(b); } b.innerHTML=html; }
+      else b?.remove();
+    };
+    upsert('.qty-badge.inuse', in_use>0, 'inuse', `<span class="led inuse"></span>${in_use} w użyciu`);
+    upsert('.qty-badge.dmg',   damaged>0, 'dmg',   `<span class="led dmg"></span>${damaged} uszk.`);
     loadStats();
   }
 }
@@ -1624,7 +1657,7 @@ async function addSelectedToSet(){
 // ─── DETAIL ─────────────────────────────────────────────────────────────────
 async function openDetail(id){
   const c = await fetch(`/api/components/${id}`).then(r=>r.json());
-  const avail = c.qty - c.in_use;
+  const avail = c.qty - c.in_use - (c.damaged||0);
   // current project assignments (chips with link + unpin)
   const projChips = (c.projects||[]).map(p=>
     `<span class="link-chip"><span class="link-chip-go" onclick="goToProject(${p.id})">🧩 ${esc(p.name)} ×${p.qty}</span><button class="chip-x" title="Odepnij od projektu" onclick="unassignComponentFromProject(${p.id},${id})">✕</button></span>`
@@ -1735,11 +1768,17 @@ async function openDetail(id){
         <label>W użyciu</label>
         <div class="dval">${c.in_use ? inUseBadge(c.in_use) : '<span style="color:var(--dim);font-size:12px">—</span>'}</div>
       </div>
+      <div class="detail-field">
+        <label>Uszkodzone</label>
+        <div class="dval">${c.damaged ? damagedBadge(c.damaged) : '<span style="color:var(--dim);font-size:12px">—</span>'}</div>
+      </div>
       <div class="detail-field" style="grid-column:1/-1">
         <label>W magazynie łącznie</label>
         <div class="dval" style="font-family:var(--mono);font-size:13px;color:var(--muted)">
           ${c.qty} szt. &nbsp;=&nbsp;
           <span style="color:#A78BFA">${c.in_use} w użyciu</span>
+          &nbsp;+&nbsp;
+          <span style="color:#E67E22">${c.damaged||0} uszk.</span>
           &nbsp;+&nbsp;
           <span style="color:var(--green)">${avail} dostępne</span>
         </div>
@@ -1792,7 +1831,7 @@ const UI = {
     $('formTitle').textContent = '// nowy_komponent';
     $('fSubmit').textContent   = 'Zapisz komponent';
     $('fId').value=''; $('fName').value='';
-    $('fQty').value='1'; $('fInUse').value='0'; $('fNotes').value='';
+    $('fQty').value='1'; $('fInUse').value='0'; $('fDamaged').value='0'; $('fNotes').value='';
     $('fCat').value=''; $('fCarton').value=''; $('fRemoveImg').value='0';
     resetImgUI();
     fillCatSelect();
@@ -1807,6 +1846,7 @@ const UI = {
     $('fName').value   = c.name;
     $('fQty').value    = c.qty;
     $('fInUse').value  = c.in_use;
+    $('fDamaged').value= c.damaged||0;
     $('fNotes').value  = c.notes||'';
     $('fCarton').value = c.carton||'';
     $('fRemoveImg').value = '0';
@@ -1842,13 +1882,15 @@ const UI = {
 async function submitForm(){
   const name = $('fName').value.trim();
   if(!name){ toast('Nazwa jest wymagana','err'); return; }
-  const qty   = parseInt($('fQty').value)||0;
-  const inUse = Math.min(parseInt($('fInUse').value)||0, qty);
+  const qty     = parseInt($('fQty').value)||0;
+  const inUse   = Math.min(parseInt($('fInUse').value)||0, qty);
+  const damaged = Math.min(parseInt($('fDamaged').value)||0, qty - inUse);
 
   const fd = new FormData();
   fd.append('name',        name);
   fd.append('qty',         qty);
   fd.append('in_use',      inUse);
+  fd.append('damaged',     damaged);
   fd.append('category_id', $('fCat').value);
   fd.append('notes',       $('fNotes').value.trim());
   fd.append('carton',      $('fCarton').value.trim());
@@ -2037,7 +2079,7 @@ async function openProject(id){
     return `<div class="proj-comp">
       ${thumb}
       <span class="proj-comp-name" onclick="goToComponent(${c.id})" title="Przejdź do komponentu">${esc(c.name)}</span>
-      <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use} dost.</span>
+      <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use-(c.damaged||0)} dost.</span>
       <button class="qbtn" title="Usuń z projektu" onclick="removeCompFromProject(${c.id})">−</button>
     </div>`;
   }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak przypisanych elementów.</div>';
@@ -2236,7 +2278,7 @@ async function openSet(id){
     return `<div class="proj-comp">
       ${thumb}
       <span class="proj-comp-name" onclick="goToComponent(${c.id})" title="Przejdź do komponentu">${esc(c.name)}</span>
-      <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use} dost.</span>
+      <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use-(c.damaged||0)} dost.</span>
       <button class="qbtn" title="Usuń z zestawu" onclick="removeCompFromSet(${c.id})">−</button>
     </div>`;
   }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak komponentów.</div>';
@@ -2495,7 +2537,7 @@ async function openTool(id){
     return `<div class="proj-comp">
       ${thumb}
       <span class="proj-comp-name" onclick="goToComponent(${c.id})" title="Przejdź do komponentu">${esc(c.name)}</span>
-      <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use} dost.</span>
+      <span class="proj-comp-qty">×${c.qty} • ${c.stock-c.in_use-(c.damaged||0)} dost.</span>
       <button class="qbtn" title="Odłącz od narzędzia" onclick="removeCompFromTool(${c.id})">−</button>
     </div>`;
   }).join('') || '<div style="color:var(--dim);font-size:12px;padding:4px 0">Brak komponentów.</div>';
