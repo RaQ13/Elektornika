@@ -211,6 +211,14 @@ app.use(express.static('public', {
   }
 }));
 
+// Adjust a component's in_use by delta, clamped to [0, qty - damaged].
+function bumpInUse(componentId, delta) {
+  const row = db.prepare('SELECT qty, in_use, damaged FROM components WHERE id=?').get(componentId);
+  if (!row) return;
+  const next = Math.max(0, Math.min(row.qty - row.damaged, row.in_use + delta));
+  if (next !== row.in_use) db.prepare('UPDATE components SET in_use=? WHERE id=?').run(next, componentId);
+}
+
 // helper – remove uploaded file safely
 function removeFile(imgPath) {
   if (!imgPath) return;
@@ -711,23 +719,27 @@ app.post('/api/sets/:id/components', (req, res) => {
   const cid = Number(req.body.component_id);
   const qty = Math.max(1, Number(req.body.qty) || 1);
   if (!db.prepare('SELECT 1 FROM sets WHERE id=?').get(sid)) return res.status(404).json({ error: 'Zestaw nie istnieje' });
-  const comp = db.prepare('SELECT qty, in_use FROM components WHERE id=?').get(cid);
+  const comp = db.prepare('SELECT qty, in_use, damaged FROM components WHERE id=?').get(cid);
   if (!comp) return res.status(400).json({ error: 'Komponent nie istnieje' });
   // can add anything to a set — unless the item is unavailable (0 available).
   // (edits to an already-added component are always allowed)
   const already = db.prepare('SELECT 1 FROM set_components WHERE set_id=? AND component_id=?').get(sid, cid);
-  if (!already && (comp.qty - comp.in_use) <= 0)
+  if (!already && (comp.qty - comp.in_use - comp.damaged) <= 0)
     return res.status(409).json({ error: 'Element niedostępny (0 dostępnych) — nie można dodać do zestawu.' });
   db.prepare(`
     INSERT INTO set_components(set_id,component_id,qty) VALUES(?,?,?)
     ON CONFLICT(set_id,component_id) DO UPDATE SET qty=excluded.qty
   `).run(sid, cid, qty);
+  // on a NEW assignment, bump the component's in_use by 1 (capped by qty - damaged)
+  if (!already) bumpInUse(cid, +1);
   res.json({ ok: true });
 });
 
 app.delete('/api/sets/:id/components/:cid', (req, res) => {
+  const existed = db.prepare('SELECT 1 FROM set_components WHERE set_id=? AND component_id=?').get(req.params.id, req.params.cid);
   db.prepare('DELETE FROM set_components WHERE set_id=? AND component_id=?')
     .run(req.params.id, req.params.cid);
+  if (existed) bumpInUse(req.params.cid, -1);   // release one from "in use"
   res.json({ ok: true });
 });
 
@@ -854,20 +866,23 @@ app.post('/api/tools/:id/components', (req, res) => {
   const cid = Number(req.body.component_id);
   const qty = Math.max(1, Number(req.body.qty) || 1);
   if (!db.prepare('SELECT 1 FROM tools WHERE id=?').get(tid)) return res.status(404).json({ error: 'Narzędzie nie istnieje' });
-  const comp = db.prepare('SELECT qty, in_use FROM components WHERE id=?').get(cid);
+  const comp = db.prepare('SELECT qty, in_use, damaged FROM components WHERE id=?').get(cid);
   if (!comp) return res.status(400).json({ error: 'Komponent nie istnieje' });
   const already = db.prepare('SELECT 1 FROM tool_components WHERE tool_id=? AND component_id=?').get(tid, cid);
-  if (!already && (comp.qty - comp.in_use) <= 0)
+  if (!already && (comp.qty - comp.in_use - comp.damaged) <= 0)
     return res.status(409).json({ error: 'Element niedostępny (0 dostępnych) — nie można dodać do narzędzia.' });
   db.prepare(`
     INSERT INTO tool_components(tool_id,component_id,qty) VALUES(?,?,?)
     ON CONFLICT(tool_id,component_id) DO UPDATE SET qty=excluded.qty
   `).run(tid, cid, qty);
+  if (!already) bumpInUse(cid, +1);
   res.json({ ok: true });
 });
 
 app.delete('/api/tools/:id/components/:cid', (req, res) => {
+  const existed = db.prepare('SELECT 1 FROM tool_components WHERE tool_id=? AND component_id=?').get(req.params.id, req.params.cid);
   db.prepare('DELETE FROM tool_components WHERE tool_id=? AND component_id=?').run(req.params.id, req.params.cid);
+  if (existed) bumpInUse(req.params.cid, -1);
   res.json({ ok: true });
 });
 
