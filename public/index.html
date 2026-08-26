@@ -231,6 +231,8 @@ select.ctrl:focus{border-color:var(--accent)}
 .view-toggle{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:2px;gap:2px}
 .vbtn{padding:3px 7px;border:none;background:none;color:var(--muted);border-radius:4px;font-size:15px;transition:all .1s}
 .vbtn.active{background:var(--card);color:var(--accent)}
+.subtab{padding:5px 13px;border:none;background:none;color:var(--muted);border-radius:5px;font-size:13px;font-weight:600;cursor:pointer;transition:all .1s}
+.subtab.active{background:var(--card);color:var(--accent)}
 
 .btn{
   display:inline-flex;align-items:center;gap:5px;
@@ -408,6 +410,9 @@ select.ctrl:focus{border-color:var(--accent)}
 }
 .overlay.open .modal{transform:translateY(0)}
 .modal-sm{max-width:340px}
+.modal-wide{max-width:1060px}
+.schem-frame{width:100%;height:78vh;border:1px solid var(--border);border-radius:8px;background:#fff;display:block}
+.schem-meta{font-size:12px;color:var(--muted);margin:0 0 12px}
 
 .modal-head{
   padding:16px 18px 12px;border-bottom:1px solid var(--border);
@@ -667,10 +672,15 @@ select.ctrl:focus{border-color:var(--accent)}
 <!-- PROJEKTY VIEW -->
 <div id="viewProjekty" class="view" style="display:none">
   <div class="proj-bar">
-    <div class="proj-title">🧩 Projekty</div>
+    <div class="view-toggle">
+      <button class="subtab active" id="subTabProjekty" onclick="switchProjektySub('projekty')">🧩 Projekty</button>
+      <button class="subtab"        id="subTabSchematy" onclick="switchProjektySub('schematy')">📐 Schematy</button>
+    </div>
     <div class="crumb-count" id="projCount"></div>
+    <div class="crumb-count" id="schemCount" style="display:none"></div>
   </div>
   <div class="grid-area view-grid" id="projGrid"></div>
+  <div class="grid-area view-grid" id="schemGrid" style="display:none"></div>
 </div>
 
 <!-- ZESTAWY VIEW -->
@@ -858,6 +868,54 @@ select.ctrl:focus{border-color:var(--accent)}
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-ghost" onclick="closeOverlay('projFormOverlay')">Anuluj</button>
       <button class="btn btn-primary" id="pfSubmit" onclick="submitProject()">Zapisz</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ MODAL: SCHEMATIC VIEWER ════════════════════════════════════════════ -->
+<div class="overlay" id="schemOverlay">
+<div class="modal modal-wide">
+  <div class="modal-head">
+    <div class="modal-title" id="schemTitle">// schemat</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="editSchematic()">Edytuj</button>
+      <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deleteSchematic()">Usuń</button>
+      <button class="modal-x" onclick="closeOverlay('schemOverlay')">×</button>
+    </div>
+  </div>
+  <div class="modal-body">
+    <p class="schem-meta" id="schemDesc"></p>
+    <iframe class="schem-frame" id="schemFrame" title="Podgląd schematu" sandbox="allow-scripts allow-popups"></iframe>
+  </div>
+</div>
+</div>
+
+<!-- ═══ MODAL: SCHEMATIC FORM ══════════════════════════════════════════════ -->
+<div class="overlay" id="schemFormOverlay">
+<div class="modal">
+  <div class="modal-head">
+    <div class="modal-title" id="schemFormTitle">// nowy_schemat</div>
+    <button class="modal-x" onclick="closeOverlay('schemFormOverlay')">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="sfId">
+    <div class="fg">
+      <label class="flabel">Nazwa <span class="req">*</span></label>
+      <input class="finput" id="sfName" placeholder="np. Okablowanie radaru WiFi">
+    </div>
+    <div class="fg">
+      <label class="flabel">Opis</label>
+      <textarea class="ftextarea" id="sfDesc" placeholder="Krótki opis czego dotyczy schemat…"></textarea>
+    </div>
+    <div class="fg">
+      <label class="flabel">Zawartość HTML <span class="req">*</span></label>
+      <input type="file" id="sfFile" accept=".html,.htm,text/html" onchange="sfFilePicked(event)" style="margin-bottom:8px">
+      <textarea class="ftextarea mono" id="sfHtml" placeholder="Wklej pełny kod HTML schematu (albo wczytaj plik .html powyżej)…" style="min-height:200px;font-family:var(--mono);font-size:11px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeOverlay('schemFormOverlay')">Anuluj</button>
+      <button class="btn btn-primary" id="sfSubmit" onclick="submitSchematic()">Zapisz</button>
     </div>
   </div>
 </div>
@@ -2019,17 +2077,32 @@ function switchView(v){
     $(tabs[k]).classList.toggle('active', v===k);
   }
   $('headerAddBtn').textContent =
-    v==='projekty'  ? '+ Nowy projekt' :
+    v==='projekty'  ? (projektySub==='schematy' ? '+ Nowy schemat' : '+ Nowy projekt') :
     v==='zestawy'   ? '+ Nowy zestaw' :
     v==='narzedzia' ? '+ Nowe narzędzie' :
     v==='ladowarki' ? '+ Nowa ładowarka' : '+ Dodaj komponent';
-  if(v==='projekty')  loadProjects();
+  if(v==='projekty')  switchProjektySub(projektySub);
   if(v==='zestawy')   loadSets();
   if(v==='narzedzia') loadTools();
   if(v==='ladowarki') loadChargers();
 }
+
+// Projekty view has two sub-tabs: the projects grid and the schematics grid.
+let projektySub = 'projekty';
+function switchProjektySub(sub){
+  projektySub = sub;
+  $('subTabProjekty').classList.toggle('active', sub==='projekty');
+  $('subTabSchematy').classList.toggle('active', sub==='schematy');
+  $('projGrid').style.display  = sub==='projekty' ? '' : 'none';
+  $('projCount').style.display = sub==='projekty' ? '' : 'none';
+  $('schemGrid').style.display = sub==='schematy' ? '' : 'none';
+  $('schemCount').style.display= sub==='schematy' ? '' : 'none';
+  $('headerAddBtn').textContent = sub==='schematy' ? '+ Nowy schemat' : '+ Nowy projekt';
+  if(sub==='projekty') loadProjects(); else loadSchematics();
+}
+
 function headerAdd(){
-  if(activeView==='projekty')  return UI.openProjectAdd();
+  if(activeView==='projekty')  return projektySub==='schematy' ? UI.openSchematicAdd() : UI.openProjectAdd();
   if(activeView==='zestawy')   return UI.openSetAdd();
   if(activeView==='narzedzia') return UI.openToolAdd();
   if(activeView==='ladowarki') return UI.openChargerAdd();
@@ -2221,6 +2294,87 @@ function pfClearImg(e){ e.stopPropagation(); pendingProjImage=null; $('pfRemoveI
 function pfResetImgUI(){ pendingProjImage=null; $('pfImg').value=''; $('pfUploadHint').style.display='block'; $('pfImgPreviewWrap').style.display='none'; $('pfImgPrev').src=''; $('pfImgInfo').textContent=''; }
 function pfZoneDrag(e,on){ e.preventDefault(); $('pfUploadZone').classList.toggle('drag',on); }
 function pfZoneDrop(e){ e.preventDefault(); $('pfUploadZone').classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')){ const dt=new DataTransfer(); dt.items.add(f); $('pfImg').files=dt.files; pfImgPicked({target:{files:[f]}}); } }
+
+// ═══ SCHEMATICS ═══════════════════════════════════════════════════════════════
+let currentSchematicId = null;
+
+async function loadSchematics(){
+  const data = await fetch('/api/schematics').then(r=>r.json());
+  $('schemCount').textContent = `${data.length} ${data.length===1?'schemat':(data.length%10>=2&&data.length%10<=4&&!(data.length%100>=12&&data.length%100<=14)?'schematy':'schematów')}`;
+  if(!data.length){
+    $('schemGrid').innerHTML = `<div class="empty"><div class="empty-icon">📐</div><h3>Brak schematów</h3><p>Kliknij „+ Nowy schemat", aby dodać pierwszy.</p></div>`;
+    return;
+  }
+  $('schemGrid').innerHTML = data.map(s=>`
+    <div class="pcard" onclick="openSchematic(${s.id})">
+      <div class="pcard-ph">📐</div>
+      <div class="pcard-body">
+        <div class="pcard-name">${esc(s.name)}</div>
+        ${s.description?`<div class="pcard-desc">${esc(s.description)}</div>`:''}
+        <div class="pcard-foot"><span class="pcard-badge">📐 schemat</span></div>
+      </div>
+    </div>`).join('');
+}
+
+async function openSchematic(id){
+  const s = await fetch(`/api/schematics/${id}`).then(r=>r.json());
+  if(s.error){ toast('Nie znaleziono schematu','err'); return; }
+  currentSchematicId = id;
+  $('schemTitle').textContent = `// ${s.name}`;
+  $('schemDesc').textContent = s.description||'';
+  $('schemDesc').style.display = s.description ? '' : 'none';
+  $('schemFrame').srcdoc = s.html || '<p style="font-family:sans-serif;padding:20px;color:#888">Ten schemat nie ma jeszcze treści.</p>';
+  openOverlay('schemOverlay');
+}
+
+function editSchematic(){ if(currentSchematicId) UI.openSchematicEdit(currentSchematicId); }
+
+async function deleteSchematic(){
+  if(!currentSchematicId) return;
+  if(!confirm('Usunąć ten schemat?')) return;
+  const r = await fetch(`/api/schematics/${currentSchematicId}`,{method:'DELETE'});
+  if(r.ok){ closeOverlay('schemOverlay'); currentSchematicId=null; toast('Schemat usunięty'); loadSchematics(); }
+  else toast('Nie udało się usunąć','err');
+}
+
+Object.assign(UI, {
+  openSchematicAdd(){
+    $('sfId').value=''; $('sfName').value=''; $('sfDesc').value=''; $('sfHtml').value=''; $('sfFile').value='';
+    $('schemFormTitle').textContent='// nowy_schemat';
+    $('sfSubmit').textContent='Zapisz schemat';
+    openOverlay('schemFormOverlay');
+  },
+  async openSchematicEdit(id){
+    const s = await fetch(`/api/schematics/${id}`).then(r=>r.json());
+    $('sfId').value=id; $('sfName').value=s.name; $('sfDesc').value=s.description||''; $('sfHtml').value=s.html||''; $('sfFile').value='';
+    $('schemFormTitle').textContent=`// edytuj: ${s.name}`;
+    $('sfSubmit').textContent='Zapisz zmiany';
+    closeOverlay('schemOverlay');
+    openOverlay('schemFormOverlay');
+  }
+});
+
+function sfFilePicked(e){
+  const f=e.target.files[0]; if(!f) return;
+  const reader=new FileReader();
+  reader.onload=()=>{ $('sfHtml').value=reader.result||''; if(!$('sfName').value.trim()) $('sfName').value=f.name.replace(/\.html?$/i,''); toast('Wczytano plik'); };
+  reader.onerror=()=>toast('Nie udało się odczytać pliku','err');
+  reader.readAsText(f);
+}
+
+async function submitSchematic(){
+  const name=$('sfName').value.trim();
+  if(!name){ toast('Nazwa jest wymagana','err'); return; }
+  const id=$('sfId').value;
+  const body=JSON.stringify({ name, description:$('sfDesc').value.trim(), html:$('sfHtml').value });
+  const r=await fetch(id?`/api/schematics/${id}`:'/api/schematics',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body});
+  if(r.ok){
+    closeOverlay('schemFormOverlay');
+    toast(id?'Schemat zaktualizowany':'Schemat dodany');
+    loadSchematics();
+    if(id && currentSchematicId==id) openSchematic(id);
+  } else { const e=await r.json().catch(()=>({})); toast(e.error||'Błąd zapisu','err'); }
+}
 
 // ═══ SETS (Zestawy) ══════════════════════════════════════════════════════════
 let currentSetId = null;

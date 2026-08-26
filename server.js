@@ -124,6 +124,14 @@ db.exec(`
     charger_id INTEGER NOT NULL REFERENCES chargers(id) ON DELETE CASCADE,
     UNIQUE(project_id, charger_id)
   );
+
+  CREATE TABLE IF NOT EXISTS schematics (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    description TEXT,
+    html        TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -181,6 +189,22 @@ if (!alreadySeeded) {
   db.prepare("INSERT INTO meta(key,value) VALUES('seeded','1')").run();
 }
 
+// One-time: seed the initial schematic (radar WiFi wiring) from the bundled file.
+if (!db.prepare("SELECT value FROM meta WHERE key='schem_seeded'").get()) {
+  try {
+    const html = fs.readFileSync('./seed/schematics/radar-wifi.html', 'utf8');
+    db.prepare('INSERT INTO schematics(name,description,html) VALUES(?,?,?)').run(
+      'Okablowanie radaru WiFi',
+      'Połączenia pin-po-pinie: ESP32-C3 SuperMini + 28BYJ-48/ULN2003 + enkoder AS5600. Tabele, schemat wiązki i pomiary multimetrem.',
+      html
+    );
+    console.log('Dodano schemat „Okablowanie radaru WiFi".');
+  } catch (e) {
+    console.warn('Nie udało się wczytać pliku seed schematu:', e.message);
+  }
+  db.prepare("INSERT INTO meta(key,value) VALUES('schem_seeded','1')").run();
+}
+
 // ── MULTER ──────────────────────────────────────────────────────────────────
 const UPLOAD_DIR = './public/uploads/';
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });   // ensure upload folder exists
@@ -202,7 +226,7 @@ const upload = multer({
 
 // ── APP ──────────────────────────────────────────────────────────────────────
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 app.use(express.static('public', {
   // Always revalidate the app shell so code changes are picked up on reload
   // (uploaded images keep normal caching — they have unique filenames).
@@ -605,6 +629,50 @@ app.delete('/api/projects/:id', (req, res) => {
   if (!p) return res.status(404).json({ error: 'Nie znaleziono' });
   removeFile(p.image);
   db.prepare('DELETE FROM projects WHERE id=?').run(req.params.id); // cascades project_components
+  res.json({ ok: true });
+});
+
+// ── SCHEMATICS ────────────────────────────────────────────────────────────
+// Self-contained HTML documents (wiring guides, pinouts) shown under Projekty.
+app.get('/api/schematics', (_req, res) => {
+  res.json(db.prepare(
+    'SELECT id, name, description, created_at FROM schematics ORDER BY created_at DESC'
+  ).all());
+});
+
+app.get('/api/schematics/:id', (req, res) => {
+  const s = db.prepare('SELECT * FROM schematics WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Nie znaleziono' });
+  res.json(s);
+});
+
+app.post('/api/schematics', (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Nazwa wymagana' });
+  const r = db.prepare('INSERT INTO schematics(name,description,html) VALUES(?,?,?)').run(
+    name,
+    req.body.description?.trim() || null,
+    typeof req.body.html === 'string' ? req.body.html : ''
+  );
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/schematics/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM schematics WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
+  db.prepare('UPDATE schematics SET name=?,description=?,html=? WHERE id=?').run(
+    (req.body.name || '').trim() || existing.name,
+    (req.body.description || '').trim() || null,
+    typeof req.body.html === 'string' ? req.body.html : existing.html,
+    req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/schematics/:id', (req, res) => {
+  const s = db.prepare('SELECT id FROM schematics WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Nie znaleziono' });
+  db.prepare('DELETE FROM schematics WHERE id=?').run(req.params.id);
   res.json({ ok: true });
 });
 

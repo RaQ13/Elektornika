@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Okablowanie radaru WiFi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#eef1f4; --panel:#ffffff; --panel2:#f4f6f8; --ink:#16202b; --muted:#586573;
+    --border:#d5dce3; --accent:#2f6fed; --accent-ink:#1d4fb8;
+    --warn:#b45309; --warn-bg:#fdf3e3; --warn-bd:#eecb95;
+    --ok:#0f7a4e; --ok-bg:#eaf6ef; --ok-bd:#b9dfca;
+    /* kolory przewodów (te same w tabeli i na schemacie) */
+    --w-5v:#e5484d; --w-gnd:#708090; --w-3v3:#ef8a2b;
+    --w-in1:#c99700; --w-in2:#2f9e44; --w-in3:#3b82f6; --w-in4:#9333ea;
+    --w-sda:#0ea5a5; --w-scl:#e5399f;
+    --shadow:0 1px 2px rgba(20,32,45,.05),0 8px 24px rgba(20,32,45,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e141b; --panel:#151f29; --panel2:#111923; --ink:#e7edf3; --muted:#93a1b0;
+      --border:#293643; --accent:#5c8dfb; --accent-ink:#8fb2ff;
+      --warn:#e5a24a; --warn-bg:#2a2114; --warn-bd:#5a4322;
+      --ok:#59c992; --ok-bg:#12241a; --ok-bd:#2c4a38;
+      --w-5v:#f2686c; --w-gnd:#93a3b3; --w-3v3:#f6a24c;
+      --w-in1:#e0b62a; --w-in2:#43b96a; --w-in3:#5c95f7; --w-in4:#b06bf0;
+      --w-sda:#22c2c2; --w-scl:#f158b3;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e141b; --panel:#151f29; --panel2:#111923; --ink:#e7edf3; --muted:#93a1b0;
+    --border:#293643; --accent:#5c8dfb; --accent-ink:#8fb2ff;
+    --warn:#e5a24a; --warn-bg:#2a2114; --warn-bd:#5a4322;
+    --ok:#59c992; --ok-bg:#12241a; --ok-bd:#2c4a38;
+    --w-5v:#f2686c; --w-gnd:#93a3b3; --w-3v3:#f6a24c;
+    --w-in1:#e0b62a; --w-in2:#43b96a; --w-in3:#5c95f7; --w-in4:#b06bf0;
+    --w-sda:#22c2c2; --w-scl:#f158b3;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:48px 22px 72px}
+  code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+
+  header{margin-bottom:34px}
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 10px; font-weight:600;
+  }
+  h1{font-size:clamp(28px,5vw,42px); line-height:1.08; margin:0 0 12px; font-weight:700; text-wrap:balance; letter-spacing:-.01em}
+  .lede{font-size:17px; color:var(--muted); max-width:64ch; margin:0}
+  .lede b{color:var(--ink); font-weight:600}
+
+  h2{font-size:20px; margin:46px 0 16px; font-weight:600; letter-spacing:-.01em; display:flex; align-items:baseline; gap:10px}
+  h2 .n{font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--accent); font-weight:600}
+
+  .rules{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin:8px 0}
+  .rule{
+    background:var(--warn-bg); border:1px solid var(--warn-bd); border-radius:12px;
+    padding:16px 16px 15px; box-shadow:var(--shadow);
+  }
+  .rule .k{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--warn); font-weight:600; text-transform:uppercase; letter-spacing:.08em; display:block; margin-bottom:6px}
+  .rule p{margin:0; font-size:14.5px}
+  .rule code{background:rgba(180,83,9,.12); padding:1px 5px; border-radius:5px; font-size:.92em}
+
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); overflow:hidden}
+  .card + .card{margin-top:16px}
+  .card-hd{padding:14px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; gap:12px; background:var(--panel2)}
+  .card-hd h3{margin:0; font-size:15px; font-weight:600}
+  .card-hd .tag{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--muted); text-align:right}
+
+  .tbl-scroll{overflow-x:auto}
+  table{border-collapse:collapse; width:100%; font-size:14px}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--border); white-space:nowrap}
+  th{font-family:"IBM Plex Mono",monospace; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td.pin{font-family:"IBM Plex Mono",monospace; font-weight:600}
+  td .arrow{color:var(--muted); padding:0 2px}
+  td.fn{color:var(--muted); white-space:normal}
+  .chip{display:inline-flex; align-items:center; gap:7px; font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:13px}
+  .dot{width:11px; height:11px; border-radius:50%; flex:none; box-shadow:0 0 0 1px rgba(0,0,0,.12) inset}
+
+  .diagram{background:var(--panel); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:8px}
+  .diagram .scroll{overflow-x:auto}
+  svg{display:block; width:100%; min-width:680px; height:auto}
+  .legend{display:flex; flex-wrap:wrap; gap:8px 16px; padding:12px 14px 6px; font-size:12.5px}
+  .legend .chip{font-size:12.5px}
+
+  .note{background:var(--panel2); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:0 10px 10px 0; padding:14px 16px; font-size:14px; margin-top:14px}
+  .note b{font-weight:600}
+  .note code{background:var(--panel); border:1px solid var(--border); padding:1px 5px; border-radius:5px; font-size:.92em}
+
+  pre{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto; font-size:13px; line-height:1.6; margin:14px 0 0}
+  pre .c{color:var(--muted)}
+  .ok-note{background:var(--ok-bg); border:1px solid var(--ok-bd); border-radius:10px; padding:12px 15px; font-size:13.5px; color:var(--ink); margin-top:12px}
+  .ok-note .k{color:var(--ok); font-weight:600; font-family:"IBM Plex Mono",monospace; font-size:12px; text-transform:uppercase; letter-spacing:.06em}
+
+  footer{margin-top:44px; padding-top:18px; border-top:1px solid var(--border); color:var(--muted); font-size:12.5px; font-family:"IBM Plex Mono",monospace}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Radar DF · WiFi</p>
+    <h1>Okablowanie radaru WiFi</h1>
+    <p class="lede">Połączenia pin‑po‑pinie dla Twoich trzech płytek: <b>ESP32‑C3 SuperMini</b> steruje silnikiem <b>28BYJ‑48</b> przez <b>ULN2003</b> i czyta azymut anteny z enkodera magnetycznego <b>AS5600</b>. Kolor przewodu = jeden sygnał, ten sam wszędzie.</p>
+  </header>
+
+  <h2><span class="n">01</span> Trzy żelazne zasady</h2>
+  <div class="rules">
+    <div class="rule">
+      <span class="k">Wspólna masa</span>
+      <p>Masa musi być połączona: <code>GND</code> ESP32 = <code>−</code> ULN2003 = <code>GND</code> AS5600. Bez tego silnik szarpie, a I2C „gubi się". Najczęstszy błąd.</p>
+    </div>
+    <div class="rule">
+      <span class="k">AS5600 tylko 3,3 V</span>
+      <p>Zasilaj enkoder z pinu <code>3V3</code>, <b>nigdy z 5 V</b>. Chip ma maks. 3,6 V — pięć woltów go uszkodzi. I2C łączysz wprost, bez konwertera poziomów.</p>
+    </div>
+    <div class="rule">
+      <span class="k">Silnik z 5 V, WiFi osobno</span>
+      <p>28BYJ‑48 zasilany z <code>5V</code> (VBUS z USB), ~0,2–0,3 A. Adapter WiFi MT7612U na <b>osobnym porcie USB</b> (0,5–1 A). Zero zasilacza 12 V.</p>
+    </div>
+  </div>
+
+  <h2><span class="n">02</span> Tabele połączeń</h2>
+
+  <div class="card">
+    <div class="card-hd">
+      <h3>ESP32‑C3 → ULN2003 (silnik)</h3>
+      <span class="tag">6 przewodów · IN5/IN6/IN7 wolne</span>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>ESP32‑C3</th><th></th><th>ULN2003</th><th>Funkcja</th></tr></thead>
+        <tbody>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-5v)"></span>5V</span></td><td><span class="arrow">→</span></td><td class="pin">+ <span style="color:var(--muted)">(5‑12V)</span></td><td class="fn">zasilanie cewek 5&nbsp;V (VBUS z USB)</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-gnd)"></span>GND</span></td><td><span class="arrow">→</span></td><td class="pin">− <span style="color:var(--muted)">(5‑12V)</span></td><td class="fn">masa wspólna</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-in1)"></span>GPIO0</span></td><td><span class="arrow">→</span></td><td class="pin">IN1</td><td class="fn">faza A</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-in2)"></span>GPIO1</span></td><td><span class="arrow">→</span></td><td class="pin">IN2</td><td class="fn">faza B</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-in3)"></span>GPIO2</span></td><td><span class="arrow">→</span></td><td class="pin">IN3</td><td class="fn">faza C &nbsp;<span style="color:var(--warn)">⚠ pin strapping</span></td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-in4)"></span>GPIO3</span></td><td><span class="arrow">→</span></td><td class="pin">IN4</td><td class="fn">faza D</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">
+      <h3>ESP32‑C3 → AS5600 (kąt)</h3>
+      <span class="tag">I2C @ 3,3 V · adres 0x36</span>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>ESP32‑C3</th><th></th><th>AS5600</th><th>Funkcja</th></tr></thead>
+        <tbody>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-3v3)"></span>3V3</span></td><td><span class="arrow">→</span></td><td class="pin">VCC</td><td class="fn">zasilanie 3,3&nbsp;V — <b>nigdy 5&nbsp;V</b></td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-gnd)"></span>GND</span></td><td><span class="arrow">→</span></td><td class="pin">GND</td><td class="fn">masa wspólna</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-gnd)"></span>GND</span></td><td><span class="arrow">→</span></td><td class="pin">DIR</td><td class="fn">kierunek narastania kąta = CW (nie zostawiaj wiszącego)</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-sda)"></span>GPIO5</span></td><td><span class="arrow">→</span></td><td class="pin">SDA</td><td class="fn">I2C dane</td></tr>
+          <tr><td class="pin"><span class="chip"><span class="dot" style="background:var(--w-scl)"></span>GPIO6</span></td><td><span class="arrow">→</span></td><td class="pin">SCL</td><td class="fn">I2C zegar</td></tr>
+          <tr><td class="pin" style="color:var(--muted)">—</td><td></td><td class="pin" style="color:var(--muted)">OUT · GPO</td><td class="fn">nieużywane w trybie I2C — zostaw wolne</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2><span class="n">03</span> Schemat wiązki</h2>
+  <div class="diagram">
+    <div class="scroll">
+      <svg viewBox="0 0 900 630" role="img" aria-label="Pinout ESP32-C3 SuperMini z podłączeniami — 8 pinów na każdej krawędzi">
+        <!-- naglowki kolumn -->
+        <text x="123" y="60" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11" letter-spacing="1" fill="var(--muted)">LEWA KRAWĘDŹ</text>
+        <text x="777" y="60" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="11" letter-spacing="1" fill="var(--muted)">PRAWA KRAWĘDŹ</text>
+
+        <!-- leadery: LEWA (GP5..GP21) -->
+        <g fill="none" stroke-width="3">
+          <path d="M360,130 L215,130" stroke="var(--w-sda)"/>
+          <path d="M360,190 L215,190" stroke="var(--w-scl)"/>
+          <path d="M360,250 L215,250" stroke="var(--border)" stroke-dasharray="4 4"/>
+          <path d="M360,310 L215,310" stroke="var(--border)" stroke-dasharray="4 4"/>
+          <path d="M360,370 L215,370" stroke="var(--border)" stroke-dasharray="4 4"/>
+          <path d="M360,430 L215,430" stroke="var(--border)" stroke-dasharray="4 4"/>
+          <path d="M360,490 L215,490" stroke="var(--border)" stroke-dasharray="4 4"/>
+          <path d="M360,550 L215,550" stroke="var(--border)" stroke-dasharray="4 4"/>
+        </g>
+        <!-- leadery: PRAWA (5V..GP0) -->
+        <g fill="none" stroke-width="3">
+          <path d="M540,130 L685,130" stroke="var(--w-5v)"/>
+          <path d="M540,190 L685,190" stroke="var(--w-gnd)"/>
+          <path d="M540,250 L685,250" stroke="var(--w-3v3)"/>
+          <path d="M540,310 L685,310" stroke="var(--border)" stroke-dasharray="4 4"/>
+          <path d="M540,370 L685,370" stroke="var(--w-in4)"/>
+          <path d="M540,430 L685,430" stroke="var(--w-in3)"/>
+          <path d="M540,490 L685,490" stroke="var(--w-in2)"/>
+          <path d="M540,550 L685,550" stroke="var(--w-in1)"/>
+        </g>
+
+        <!-- plytka ESP32-C3 SuperMini -->
+        <rect x="360" y="88" width="180" height="504" rx="18" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.6"/>
+        <rect x="420" y="78" width="60" height="20" rx="4" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.3"/>
+        <text x="450" y="92" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10" fill="var(--muted)">USB‑C</text>
+        <text x="450" y="333" text-anchor="middle" font-family="'IBM Plex Sans',sans-serif" font-weight="700" font-size="16" fill="var(--ink)">ESP32‑C3</text>
+        <text x="450" y="354" text-anchor="middle" font-family="'IBM Plex Sans',sans-serif" font-size="12.5" fill="var(--muted)">SuperMini</text>
+
+        <!-- nazwy pinow na plytce -->
+        <g font-family="'IBM Plex Mono',monospace" font-size="12" font-weight="600">
+          <text x="352" y="134" text-anchor="end" fill="var(--ink)">GP5</text>
+          <text x="352" y="194" text-anchor="end" fill="var(--ink)">GP6</text>
+          <text x="352" y="254" text-anchor="end" fill="var(--muted)">GP7</text>
+          <text x="352" y="314" text-anchor="end" fill="var(--muted)">GP8</text>
+          <text x="352" y="374" text-anchor="end" fill="var(--muted)">GP9</text>
+          <text x="352" y="434" text-anchor="end" fill="var(--muted)">GP10</text>
+          <text x="352" y="494" text-anchor="end" fill="var(--muted)">GP20</text>
+          <text x="352" y="554" text-anchor="end" fill="var(--muted)">GP21</text>
+          <text x="548" y="134" text-anchor="start" fill="var(--ink)">5V</text>
+          <text x="548" y="194" text-anchor="start" fill="var(--ink)">GND</text>
+          <text x="548" y="254" text-anchor="start" fill="var(--ink)">3V3</text>
+          <text x="548" y="314" text-anchor="start" fill="var(--muted)">GP4</text>
+          <text x="548" y="374" text-anchor="start" fill="var(--ink)">GP3</text>
+          <text x="548" y="434" text-anchor="start" fill="var(--ink)">GP2</text>
+          <text x="548" y="494" text-anchor="start" fill="var(--ink)">GP1</text>
+          <text x="548" y="554" text-anchor="start" fill="var(--ink)">GP0</text>
+        </g>
+
+        <!-- kropki pinow: LEWA (GP5..GP21) -->
+        <circle cx="360" cy="130" r="6" fill="var(--w-sda)"/>
+        <circle cx="360" cy="190" r="6" fill="var(--w-scl)"/>
+        <circle cx="360" cy="250" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <circle cx="360" cy="310" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <circle cx="360" cy="370" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <circle cx="360" cy="430" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <circle cx="360" cy="490" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <circle cx="360" cy="550" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <!-- kropki pinow: PRAWA (5V..GP0) -->
+        <circle cx="540" cy="130" r="6" fill="var(--w-5v)"/>
+        <circle cx="540" cy="190" r="6" fill="var(--w-gnd)"/>
+        <circle cx="540" cy="250" r="6" fill="var(--w-3v3)"/>
+        <circle cx="540" cy="310" r="5.5" fill="var(--panel)" stroke="var(--muted)" stroke-width="1.4"/>
+        <circle cx="540" cy="370" r="6" fill="var(--w-in4)"/>
+        <circle cx="540" cy="430" r="6" fill="var(--w-in3)"/>
+        <circle cx="540" cy="490" r="6" fill="var(--w-in2)"/>
+        <circle cx="540" cy="550" r="6" fill="var(--w-in1)"/>
+
+        <!-- callouty: LEWA (x 32..215) — GP5..GP21 -->
+        <g font-family="'IBM Plex Mono',monospace" font-size="10.5">
+          <rect x="32" y="112" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-sda)" stroke-width="1.6"/>
+          <text x="44" y="134" fill="var(--ink)">AS5600  SDA</text>
+
+          <rect x="32" y="172" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-scl)" stroke-width="1.6"/>
+          <text x="44" y="194" fill="var(--ink)">AS5600  SCL</text>
+
+          <rect x="32" y="232" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="44" y="254" fill="var(--muted)">wolny</text>
+
+          <rect x="32" y="292" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="44" y="314" fill="var(--muted)">wolny · LED wbudowany</text>
+
+          <rect x="32" y="352" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="44" y="374" fill="var(--muted)">wolny · BOOT</text>
+
+          <rect x="32" y="412" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="44" y="434" fill="var(--muted)">wolny</text>
+
+          <rect x="32" y="472" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="44" y="494" fill="var(--muted)">wolny · RX (UART0)</text>
+
+          <rect x="32" y="532" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="44" y="554" fill="var(--muted)">wolny · TX (UART0)</text>
+        </g>
+
+        <!-- callouty: PRAWA (x 685..868) — 5V..GP0 -->
+        <g font-family="'IBM Plex Mono',monospace" font-size="10.5">
+          <rect x="685" y="112" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-5v)" stroke-width="1.6"/>
+          <text x="697" y="134" fill="var(--ink)">ULN2003  +  (5–12 V)</text>
+
+          <rect x="685" y="169" width="183" height="42" rx="8" fill="var(--panel)" stroke="var(--w-gnd)" stroke-width="1.6"/>
+          <text x="697" y="185" fill="var(--ink)">ULN2003 −  ·  AS5600</text>
+          <text x="697" y="200" fill="var(--ink)">GND  +  DIR</text>
+
+          <rect x="685" y="232" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-3v3)" stroke-width="1.6"/>
+          <text x="697" y="254" fill="var(--ink)">AS5600  VCC  (3,3 V!)</text>
+
+          <rect x="685" y="292" width="183" height="36" rx="8" fill="var(--panel2)" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/>
+          <text x="697" y="314" fill="var(--muted)">wolny · zapas na IN3</text>
+
+          <rect x="685" y="352" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-in4)" stroke-width="1.6"/>
+          <text x="697" y="374" fill="var(--ink)">ULN2003  IN4</text>
+
+          <rect x="685" y="412" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-in3)" stroke-width="1.6"/>
+          <text x="697" y="434" fill="var(--ink)">ULN2003  IN3  <tspan fill="var(--warn)">⚠strap</tspan></text>
+
+          <rect x="685" y="472" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-in2)" stroke-width="1.6"/>
+          <text x="697" y="494" fill="var(--ink)">ULN2003  IN2</text>
+
+          <rect x="685" y="532" width="183" height="36" rx="8" fill="var(--panel)" stroke="var(--w-in1)" stroke-width="1.6"/>
+          <text x="697" y="554" fill="var(--ink)">ULN2003  IN1</text>
+        </g>
+
+        <text x="450" y="612" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="10.5" fill="var(--muted)">kolejność i pozycja pinów jak na Twojej płytce (USB‑C u góry) · pełne kropki = użyte, szare przerywane = wolne</text>
+      </svg>
+    </div>
+    <div class="legend">
+      <span class="chip"><span class="dot" style="background:var(--w-5v)"></span>5V</span>
+      <span class="chip"><span class="dot" style="background:var(--w-3v3)"></span>3V3</span>
+      <span class="chip"><span class="dot" style="background:var(--w-gnd)"></span>GND (×3)</span>
+      <span class="chip"><span class="dot" style="background:var(--w-in1)"></span>IN1</span>
+      <span class="chip"><span class="dot" style="background:var(--w-in2)"></span>IN2</span>
+      <span class="chip"><span class="dot" style="background:var(--w-in3)"></span>IN3</span>
+      <span class="chip"><span class="dot" style="background:var(--w-in4)"></span>IN4</span>
+      <span class="chip"><span class="dot" style="background:var(--w-sda)"></span>SDA</span>
+      <span class="chip"><span class="dot" style="background:var(--w-scl)"></span>SCL</span>
+    </div>
+  </div>
+
+  <style>
+    .wire-colors .wc-body{padding:14px 18px 18px}
+    .wc-hint{margin:0 0 12px;color:var(--muted);font-size:13px;max-width:64ch}
+    .wc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:10px}
+    .wc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel2)}
+    .wc-row input[type=color]{inline-size:36px;block-size:26px;border:none;background:none;padding:0;cursor:pointer;flex:none}
+    .wc-row input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+    .wc-row input[type=color]::-webkit-color-swatch{border:1px solid var(--border);border-radius:6px}
+    .wc-row input[type=color]::-moz-color-swatch{border:1px solid var(--border);border-radius:6px}
+    .wc-name{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:13px;min-width:34px}
+    .wc-note{color:var(--muted);font-size:11.5px;flex:1}
+    .wc-hex{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+    .wc-btn{font-family:inherit;font-size:13px;padding:6px 14px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--ink);cursor:pointer}
+    .wc-btn:hover{border-color:var(--accent);color:var(--accent)}
+    .wc-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  </style>
+  <section class="card wire-colors" style="margin-top:16px">
+    <div class="card-hd">
+      <h3>Kolory przewodów</h3>
+      <button id="wc-reset" class="wc-btn" type="button">Reset do domyślnych</button>
+    </div>
+    <div class="wc-body">
+      <p class="wc-hint">Kliknij próbkę i wybierz kolor — sygnał od razu przeskakuje na schemacie, w tabeli i w legendzie. Ustawienia zapamiętują się w tej przeglądarce (dla obu motywów).</p>
+      <div class="wc-grid" id="wc-grid"></div>
+    </div>
+  </section>
+  <script>
+  (function(){
+    var SIGNALS=[
+      ["--w-5v","5V","zasilanie 5 V"],["--w-gnd","GND","masa (×3)"],["--w-3v3","3V3","zasilanie 3,3 V"],
+      ["--w-in1","IN1","GP0 → IN1"],["--w-in2","IN2","GP1 → IN2"],["--w-in3","IN3","GP2 → IN3"],
+      ["--w-in4","IN4","GP3 → IN4"],["--w-sda","SDA","GP5 → SDA"],["--w-scl","SCL","GP6 → SCL"]
+    ];
+    var KEY="radar-wire-colors", root=document.documentElement, grid=document.getElementById("wc-grid");
+    function loadO(){try{return JSON.parse(localStorage.getItem(KEY))||{};}catch(e){return {};}}
+    function saveO(o){try{localStorage.setItem(KEY,JSON.stringify(o));}catch(e){}}
+    function norm(c){c=(c||"").trim().toLowerCase();return /^#[0-9a-f]{6}$/.test(c)?c:"#888888";}
+    function defColor(v){return norm(getComputedStyle(root).getPropertyValue(v));}
+    var overrides=loadO(), inputs={};
+    Object.keys(overrides).forEach(function(v){root.style.setProperty(v,overrides[v]);});
+    SIGNALS.forEach(function(s){
+      var v=s[0], cur=norm(overrides[v]||defColor(v));
+      var row=document.createElement("label"); row.className="wc-row";
+      var inp=document.createElement("input"); inp.type="color"; inp.value=cur; inp.setAttribute("aria-label","Kolor "+s[1]);
+      var name=document.createElement("span"); name.className="wc-name"; name.textContent=s[1];
+      var note=document.createElement("span"); note.className="wc-note"; note.textContent=s[2];
+      var hex=document.createElement("span"); hex.className="wc-hex"; hex.textContent=cur.toUpperCase();
+      inp.addEventListener("input",function(){
+        root.style.setProperty(v,inp.value); hex.textContent=inp.value.toUpperCase();
+        overrides[v]=inp.value; saveO(overrides);
+      });
+      row.appendChild(inp);row.appendChild(name);row.appendChild(note);row.appendChild(hex);
+      grid.appendChild(row); inputs[v]=[inp,hex];
+    });
+    document.getElementById("wc-reset").addEventListener("click",function(){
+      SIGNALS.forEach(function(s){root.style.removeProperty(s[0]);});
+      overrides={}; saveO(overrides);
+      SIGNALS.forEach(function(s){var c=defColor(s[0]);inputs[s[0]][0].value=c;inputs[s[0]][1].textContent=c.toUpperCase();});
+    });
+  })();
+  </script>
+
+  <div class="note">
+    <b>Pinout ESP32‑C3 SuperMini</b> (USB‑C u góry) — <b>lewa krawędź:</b> <code>5V · GND · 3V3 · GP4 · GP3 · GP2 · GP1 · GP0</code>; <b>prawa krawędź:</b> <code>GP5 · GP6 · GP7 · GP8 · GP9 · GP10 · GP20(RX) · GP21(TX)</code>. U Ciebie stepper siedzi na <b>GP0/1/2/3</b> — uwaga: <b>GP2 to pin strapping</b> (jeśli płytka nie bootuje, przełóż IN3 na wolny <b>GP4</b> i ustaw <code>IN[2]=4</code>). Piny <b>GP8 (LED) / GP9 (BOOT)</b> też strapping — zostaw wolne.
+  </div>
+
+  <h2><span class="n">04</span> Firmware i wpięcie do radaru</h2>
+  <p style="color:var(--muted); font-size:15px; margin:0 0 4px; max-width:64ch">Na ESP32‑C3 w pętli: krok silnika → odczyt kąta AS5600 → wyślij po USB serial linię <code class="mono">A&lt;kąt&gt;\n</code>. Po stronie laptopa wątek <code class="mono">pyserial</code> woła <code class="mono">self.set_heading(kąt)</code> w <code class="mono">wifi_radar.py</code> (metoda już istnieje).</p>
+  <pre><span class="c">// definicje pinów (zgodne ze schematem)</span>
+#define IN1 0
+#define IN2 1
+#define IN3 2   <span class="c">// GP2 = strapping; jak nie bootuje -> zmien na 4</span>
+#define IN4 3
+#define I2C_SDA 5
+#define I2C_SCL 6
+<span class="c">// AS5600: adres 0x36, RAW ANGLE = rejestr 0x0C–0x0D (12‑bit → 0..4095)</span>
+<span class="c">// kąt[°] = raw * 360.0 / 4096.0   → Serial.printf("A%.1f\n", kat);</span></pre>
+  <div class="ok-note">
+    <span class="k">Sanity‑check przed pierwszym ruchem</span> — zanim wpniesz zasilanie: (1) przejedź omomierzem GND wszystkich trzech płytek, (2) zmierz że na VCC AS5600 jest <b>3,3 V, nie 5 V</b>, (3) w monitorze szeregowym potwierdź, że kąt z AS5600 zmienia się 0→360 przy ręcznym obrocie magnesu.
+  </div>
+
+  <h2><span class="n">05</span> Pomiary multimetrem — czy z prądem OK</h2>
+  <p style="color:var(--muted); font-size:15px; margin:0 0 14px; max-width:64ch"><b style="color:var(--ink)">Zasada:</b> <b style="color:var(--ink)">napięcie</b> mierzysz <b>równolegle</b> (sondy na punkt i masę) przy <b>włączonym</b> zasilaniu; <b style="color:var(--ink)">ciągłość/rezystancję</b> — tylko przy <b>odłączonym</b> zasilaniu; <b style="color:var(--ink)">prąd</b> — <b>szeregowo</b> (przerywasz obwód). Czarna sonda = COM.</p>
+
+  <div class="card">
+    <div class="card-hd">
+      <h3>1 · Napięcia</h3>
+      <span class="tag">tryb V⎓ (DC) · sondy równolegle · zasilanie ON</span>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Sonda + (czerwona)</th><th>Sonda − (COM)</th><th>Oczekiwane</th><th>Jeśli źle</th></tr></thead>
+        <tbody>
+          <tr><td class="pin">5V (źródło silnika)</td><td class="pin">GND</td><td><b>4,8 – 5,2 V</b></td><td class="fn">&lt;4,5 V: słaby zasilacz/kabel · 0 V: brak zasilania lub zimny lut (pamiętaj — pin 5V Twojego ESP był głuchy)</td></tr>
+          <tr><td class="pin">ULN2003 „+”</td><td class="pin">ULN2003 „−”</td><td><b>~5 V</b></td><td class="fn">0/niskie: brak zworki zasilania albo niepodłączone 5&nbsp;V</td></tr>
+          <tr><td class="pin">ESP 3V3</td><td class="pin">GND</td><td><b>3,0 – 3,3 V</b></td><td class="fn">0 V: ESP bez zasilania / uszkodzony LDO</td></tr>
+          <tr><td class="pin">AS5600 VCC</td><td class="pin">GND</td><td><b>3,0 – 3,3 V</b> &nbsp;<span style="color:var(--warn)">⚠ NIE 5 V</span></td><td class="fn">5 V = pomyłka zasilania, grozi uszkodzeniem chipu → natychmiast odłącz</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">
+      <h3>2 · Ciągłość i zwarcia</h3>
+      <span class="tag">tryb 🔊 / Ω · zasilanie OFF</span>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Sonda A</th><th>Sonda B</th><th>Oczekiwane</th><th>Jeśli źle</th></tr></thead>
+        <tbody>
+          <tr><td class="pin">GND (ESP)</td><td class="pin">ULN2003 „−”</td><td><b>🔊 beep · ~0 Ω</b></td><td class="fn">brak beep = masa nie spięta → dolutuj</td></tr>
+          <tr><td class="pin">GND (ESP)</td><td class="pin">AS5600 GND</td><td><b>🔊 beep · ~0 Ω</b></td><td class="fn">brak beep = masa AS5600 wisi (I2C będzie gubić)</td></tr>
+          <tr><td class="pin">GND (ESP)</td><td class="pin">GND źródła 5 V</td><td><b>🔊 beep · ~0 Ω</b></td><td class="fn">bez wspólnej masy nic nie zadziała poprawnie</td></tr>
+          <tr><td class="pin">5V</td><td class="pin">GND</td><td><b>CISZA · kΩ+</b></td><td class="fn"><span style="color:var(--warn)">beep / ~0 Ω = ZWARCIE</span> — nie włączaj, szukaj mostka lutowniczego</td></tr>
+          <tr><td class="pin">AS5600 VCC</td><td class="pin">AS5600 GND</td><td><b>CISZA · kΩ+</b></td><td class="fn">beep = zwarcie na module enkodera</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">
+      <h3>3 · Prąd (opcjonalnie)</h3>
+      <span class="tag">tryb A⎓ · miernik SZEREGOWO w gałęzi 5 V</span>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr><th>Gdzie / kiedy</th><th>Oczekiwane</th><th>Jeśli źle</th></tr></thead>
+        <tbody>
+          <tr><td class="pin">Rig kręci silnikiem</td><td><b>~0,2 – 0,3 A</b></td><td class="fn">&gt;0,5 A ciągłe lub grzanie ULN = zablokowany wał / zwarcie cewki</td></tr>
+          <tr><td class="pin">Spoczynek (cewki OFF)</td><td><b>~kilka – kilkadziesiąt mA</b></td><td class="fn">dużo więcej = jedna faza wciąż załączona</td></tr>
+          <tr><td class="pin">Cały rig z ESP</td><td><b>≤ ~0,35 A @ 5 V</b></td><td class="fn">mieści się w jednym porcie USB (adapter WiFi trzymaj osobno)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="note" style="border-left-color:var(--warn)">
+    <b>⚠ Pomiar prądu bezpiecznie:</b> miernik w trybie <b>A</b> ma prawie zerowy opór — podłączony <b>równolegle</b> do zasilania robi zwarcie. Zawsze wpinaj go <b>szeregowo</b> (przerwij gałąź 5&nbsp;V, jedna sonda do źródła, druga do „+” ULN). Użyj gniazda <b>10 A</b> w mierniku i pilnuj bezpiecznika. Nie umiesz/nie chcesz? Pomiar prądu pomiń — same napięcia + ciągłość wystarczą, żeby wiedzieć, że zasilanie jest OK.
+  </div>
+
+  <div class="ok-note">
+    <span class="k">Kolejność na start</span> — najpierw <b>OFF</b>: ciągłość mas + brak zwarć 5V/GND (tabela&nbsp;2). Potem <b>ON bez silnika/AS5600</b>: zmierz 5 V i 3,3 V (tabela&nbsp;1). Dopiero gdy napięcia są OK — podłącz AS5600 (sprawdź jego VCC = 3,3 V) i ULN2003.
+  </div>
+
+  <footer>Radar DF WiFi · Utils/Wifi · uzupełnienie sekcji 8 w PORADNIK_anteny_i_lokalizacja.md</footer>
+</div>
+
+</body>
+</html>
