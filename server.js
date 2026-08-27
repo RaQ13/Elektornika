@@ -132,6 +132,13 @@ db.exec(`
     html        TEXT    NOT NULL DEFAULT '',
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
   );
+
+  CREATE TABLE IF NOT EXISTS boards (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    data        TEXT    NOT NULL DEFAULT '{}',
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
 `);
 
 // Migrate existing DB: add in_use if missing
@@ -673,6 +680,53 @@ app.delete('/api/schematics/:id', (req, res) => {
   const s = db.prepare('SELECT id FROM schematics WHERE id=?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Nie znaleziono' });
   db.prepare('DELETE FROM schematics WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── BOARDS (breadboard simulator) ──────────────────────────────────────────
+// Interactive board designs (modules, pins, wires) stored as a JSON blob.
+app.get('/api/boards', (_req, res) => {
+  res.json(db.prepare(
+    'SELECT id, name, created_at FROM boards ORDER BY created_at DESC'
+  ).all());
+});
+
+app.get('/api/boards/:id', (req, res) => {
+  const b = db.prepare('SELECT * FROM boards WHERE id=?').get(req.params.id);
+  if (!b) return res.status(404).json({ error: 'Nie znaleziono' });
+  res.json(b);
+});
+
+function normBoardData(v) {
+  if (typeof v === 'string') return v || '{}';
+  if (v && typeof v === 'object') return JSON.stringify(v);
+  return '{}';
+}
+
+app.post('/api/boards', (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Nazwa wymagana' });
+  const r = db.prepare('INSERT INTO boards(name,data) VALUES(?,?)').run(
+    name, normBoardData(req.body.data)
+  );
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+
+app.put('/api/boards/:id', (req, res) => {
+  const existing = db.prepare('SELECT * FROM boards WHERE id=?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Nie znaleziono' });
+  db.prepare('UPDATE boards SET name=?,data=? WHERE id=?').run(
+    (req.body.name || '').trim() || existing.name,
+    req.body.data !== undefined ? normBoardData(req.body.data) : existing.data,
+    req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/boards/:id', (req, res) => {
+  const b = db.prepare('SELECT id FROM boards WHERE id=?').get(req.params.id);
+  if (!b) return res.status(404).json({ error: 'Nie znaleziono' });
+  db.prepare('DELETE FROM boards WHERE id=?').run(req.params.id);
   res.json({ ok: true });
 });
 
